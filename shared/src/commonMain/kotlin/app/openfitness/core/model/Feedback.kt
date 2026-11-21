@@ -1,5 +1,7 @@
 package app.openfitness.core.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * Feedback scales. Each value has an ordinal from low to high.
  * The user gives this feedback during or after a workout.
@@ -27,6 +29,7 @@ enum class Workload { EASY, GOOD, HARD, TOO_MUCH }
 enum class JointPain { NONE, MILD, MODERATE, SEVERE }
 
 /** Feedback for one muscle in one session. */
+@Serializable
 data class MuscleFeedback(
     val soreness: Soreness? = null,
     val pump: Pump? = null,

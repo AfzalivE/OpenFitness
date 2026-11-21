@@ -1,6 +1,9 @@
 package app.openfitness.core.model
 
+import kotlinx.serialization.Serializable
+
 /** What the user did in one training day of one week, with feedback. */
+@Serializable
 data class SessionRecord(
     val week: Int,
     val dayIndex: Int,
