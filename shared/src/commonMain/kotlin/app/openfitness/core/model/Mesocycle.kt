@@ -1,11 +1,15 @@
 package app.openfitness.core.model
 
+import kotlinx.serialization.Serializable
+
 /** Planned exercise in a training day. The set count changes each week. */
+@Serializable
 data class ExerciseSlot(
     val exerciseId: String,
     val muscle: Muscle,
 )
 
+@Serializable
 data class TrainingDay(
     val name: String,
     val slots: List<ExerciseSlot>,
@@ -15,6 +19,7 @@ data class TrainingDay(
  * A block of training. It has [accumulationWeeks] weeks of hard training,
  * then one deload week.
  */
+@Serializable
 data class MesocyclePlan(
     val name: String,
     val days: List<TrainingDay>,
@@ -31,6 +36,7 @@ data class MesocyclePlan(
 }
 
 /** One logged set. */
+@Serializable
 data class LoggedSet(
     val weightKg: Double,
     val reps: Int,
@@ -39,6 +45,7 @@ data class LoggedSet(
 )
 
 /** The result of one exercise in one session. */
+@Serializable
 data class ExerciseResult(
     val exerciseId: String,
     val sets: List<LoggedSet>,
@@ -46,6 +53,7 @@ data class ExerciseResult(
 )
 
 /** Prescription for one exercise in one session. */
+@Serializable
 data class Prescription(
     val exerciseId: String,
     val sets: Int,
