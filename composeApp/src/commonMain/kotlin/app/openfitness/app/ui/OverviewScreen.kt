@@ -21,7 +21,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -32,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,20 +81,6 @@ fun OverviewScreen(
             SectionTitle("Weeks")
             WeekGrid(block)
 
-            SectionTitle(if (plan.isDeload(week)) "Sets each muscle, week ${week + 1} (deload)" else "Sets each muscle, week ${week + 1}")
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    val sets = block.weeklySets(week).entries.toList()
-                    sets.forEachIndexed { i, (muscle, n) ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                            Text(muscle.displayName, modifier = Modifier.weight(1f))
-                            Text("$n sets", fontWeight = FontWeight.SemiBold)
-                        }
-                        if (i < sets.lastIndex) HorizontalDivider()
-                    }
-                }
-            }
-
             if (!block.isComplete) {
                 OutlinedButton(onClick = { confirmEnd = true }, modifier = Modifier.fillMaxWidth()) { Text("End block") }
             }
@@ -143,6 +129,9 @@ private fun CurrentWeekCard(block: Block, onWorkout: () -> Unit) {
 private fun WeekGrid(block: Block) {
     val plan = block.plan
     val cell = 64.dp
+    var showAll by rememberSaveable { mutableStateOf(false) }
+    val lastShown = if (showAll) plan.totalWeeks - 1 else block.currentWeek
+    val hidden = plan.totalWeeks - 1 - block.currentWeek
     Row(Modifier.horizontalScroll(rememberScrollState())) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -157,7 +146,7 @@ private fun WeekGrid(block: Block) {
                     )
                 }
             }
-            for (w in 0 until plan.totalWeeks) {
+            for (w in 0..lastShown) {
                 val isCurrent = w == block.currentWeek
                 val deload = plan.isDeload(w)
                 val rir = RirSchedule.targetRir(w, plan.accumulationWeeks)
@@ -208,10 +197,24 @@ private fun WeekGrid(block: Block) {
             }
         }
     }
+    if (hidden > 0) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (showAll) "Week ${plan.totalWeeks} is the deload week."
+                else "$hidden more weeks. Week ${plan.totalWeeks} is the deload week.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { showAll = !showAll }) { Text(if (showAll) "Show fewer weeks" else "Show all weeks") }
+        }
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Legend(MaterialTheme.colorScheme.primary, "Done")
         Legend(MaterialTheme.colorScheme.secondaryContainer, "Next")
-        Legend(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f), "Deload")
+        if (lastShown == plan.totalWeeks - 1) {
+            Legend(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f), "Deload")
+        }
     }
 }
 

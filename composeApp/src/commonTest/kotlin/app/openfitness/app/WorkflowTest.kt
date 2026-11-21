@@ -9,6 +9,7 @@ import app.openfitness.core.library.ExerciseLibrary
 import app.openfitness.core.library.Templates
 import app.openfitness.core.model.JointPain
 import app.openfitness.core.model.Muscle
+import app.openfitness.core.model.MuscleFeedback
 import app.openfitness.core.model.Pump
 import app.openfitness.core.model.Soreness
 import app.openfitness.core.model.Workload
@@ -140,10 +141,25 @@ class WorkflowTest {
         var b = Workflow.startWorkout(Workflow.startBlock(twoChest, 4))
         assertFalse(Workflow.asksPumpAndWorkload(b, 0))
         assertFalse(Workflow.asksJointPain(b, 1))
-        b.active!!.exercises.forEachIndexed { i, e -> e.sets.indices.forEach { s -> b = Workflow.updateSet(b, i, s) { it.copy(reps = 8, done = true) } } }
+        // The last chest exercise is done, but the first is not: no pump question yet.
+        b.active!!.exercises[1].sets.indices.forEach { s -> b = Workflow.updateSet(b, 1, s) { it.copy(reps = 8, done = true) } }
+        assertTrue(Workflow.asksJointPain(b, 1))
+        assertFalse(Workflow.asksPumpAndWorkload(b, 1))
+        b.active.exercises.forEachIndexed { i, e -> e.sets.indices.forEach { s -> b = Workflow.updateSet(b, i, s) { it.copy(reps = 8, done = true) } } }
         assertTrue(Workflow.asksJointPain(b, 0))
         assertFalse(Workflow.asksPumpAndWorkload(b, 0)) // Not the last chest exercise.
         assertTrue(Workflow.asksPumpAndWorkload(b, 1))
+    }
+
+    @Test fun exerciseIsCompleteWhenSetsAndAnswersAreDone() {
+        var b = Workflow.startWorkout(doWeek(Workflow.startBlock(plan, 4)))
+        assertFalse(Workflow.isExerciseComplete(b, 0))
+        b.active!!.exercises[0].sets.indices.forEach { s -> b = Workflow.updateSet(b, 0, s) { it.copy(reps = 8, done = true) } }
+        assertFalse(Workflow.isExerciseComplete(b, 0)) // Questions have no answer yet.
+        b = Workflow.setJointPain(b, 0, JointPain.NONE)
+        b = Workflow.updateFeedback(b, Muscle.CHEST) { MuscleFeedback(Soreness.RECOVERED_ON_TIME, Pump.MODERATE, Workload.GOOD) }
+        assertTrue(Workflow.isExerciseComplete(b, 0))
+        assertFalse(Workflow.isExerciseComplete(b, 1))
     }
 
     @Test fun swapChangesThePlanAndTheCurrentWeek() {

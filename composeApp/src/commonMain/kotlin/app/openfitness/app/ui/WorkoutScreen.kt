@@ -1,5 +1,6 @@
 package app.openfitness.app.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -16,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -51,6 +53,7 @@ import app.openfitness.core.library.ExerciseLibrary
 import app.openfitness.core.model.JointPain
 import app.openfitness.core.model.LoadType
 import app.openfitness.core.model.Muscle
+import app.openfitness.core.model.Prescription
 import app.openfitness.core.model.Pump
 import app.openfitness.core.model.Soreness
 import app.openfitness.core.model.Workload
@@ -93,12 +96,16 @@ fun WorkoutScreen(
                     Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // The rest timer starts when a set is done. It shows only while it runs.
                     if (restLeft > 0) {
                         Text("Rest ${formatSeconds(restLeft)}", style = MaterialTheme.typography.titleMedium)
                         TextButton(onClick = { restLeft += 30 }) { Text("+30 s") }
-                        TextButton(onClick = { restLeft = 0 }) { Text("Stop") }
+                        TextButton(onClick = { restLeft = 0 }) { Text("Skip") }
                     } else {
-                        TextButton(onClick = { restLeft = DEFAULT_REST_SECONDS; restRun++ }) { Text("Start rest timer") }
+                        Text(
+                            "${workout.exercises.sumOf { e -> e.sets.count { it.done } }} of ${workout.exercises.sumOf { it.sets.size }} sets done",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     }
                     Spacer(Modifier.weight(1f))
                     Button(onClick = {
@@ -108,6 +115,11 @@ fun WorkoutScreen(
             }
         },
     ) { padding ->
+        // The current exercise is the first one with sets that are not done.
+        // It and the exercises before it are open. The next exercises are closed.
+        // A tap on a card header opens or closes that card.
+        val current = workout.exercises.indexOfFirst { !it.allSetsDone }.let { if (it < 0) workout.exercises.lastIndex else it }
+        var toggled by remember { mutableStateOf(mapOf<Int, Boolean>()) }
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
@@ -118,6 +130,8 @@ fun WorkoutScreen(
                     block = block,
                     index = i,
                     entry = entry,
+                    expanded = toggled[i] ?: (i <= current),
+                    onToggle = { toggled = toggled + (i to !(toggled[i] ?: (i <= current))) },
                     onChange = onChange,
                     onSetDone = { restLeft = DEFAULT_REST_SECONDS; restRun++ },
                     onSwap = { onSwap(workout.dayIndex, entry.slotIndex) },
@@ -137,12 +151,13 @@ fun WorkoutScreen(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ExerciseCard(
     block: Block,
     index: Int,
     entry: ExerciseEntry,
+    expanded: Boolean,
+    onToggle: () -> Unit,
     onChange: ((Block) -> Block) -> Unit,
     onSetDone: () -> Unit,
     onSwap: () -> Unit,
@@ -152,25 +167,40 @@ private fun ExerciseCard(
     val rx = block.weeks[workout.week][workout.dayIndex][entry.slotIndex]
     val muscle = Workflow.muscleOf(block, entry)
     val feedback = workout.feedback[muscle]
+    val doneSets = entry.sets.count { it.done }
+    val complete = Workflow.isExerciseComplete(block, index)
 
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().clickable(onClick = onToggle), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(exercise.name, style = MaterialTheme.typography.titleMedium)
-                    Text(muscle.displayName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        if (expanded) muscle.displayName else collapsedSummary(rx, doneSets, entry.sets.size, complete),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (complete && !expanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                TextButton(onClick = onSwap, enabled = !entry.anySetDone) { Text("Swap") }
+                if (expanded && !entry.anySetDone) {
+                    TextButton(onClick = onSwap) { Text("Swap") }
+                }
+                Text(
+                    if (expanded) "▴" else "▾",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
             }
+            if (!expanded) return@Column
 
             if (Workflow.asksSoreness(block, index)) {
-                Prompt("How sore was your ${muscle.lower()} after the last session?") {
-                    Options(
-                        options = Soreness.entries,
-                        selected = feedback?.soreness,
-                        label = ::sorenessLabel,
-                    ) { v -> onChange { Workflow.updateFeedback(it, muscle) { f -> f.copy(soreness = v) } } }
-                }
+                Prompt(
+                    question = "How sore was your ${muscle.lower()} after the last session?",
+                    answer = feedback?.soreness?.let { "${muscle.displayName} soreness: ${sorenessLabel(it).lowercase()}" },
+                    options = Soreness.entries,
+                    selected = feedback?.soreness,
+                    label = ::sorenessLabel,
+                ) { v -> onChange { Workflow.updateFeedback(it, muscle) { f -> f.copy(soreness = v) } } }
             }
 
             Text(
@@ -201,27 +231,40 @@ private fun ExerciseCard(
                 )
             }
 
+            // These questions show only after the sets are done.
             if (Workflow.asksJointPain(block, index)) {
-                Prompt("Did you have joint pain in this exercise?") {
-                    Options(JointPain.entries, entry.jointPain, ::jointPainLabel) { v ->
-                        onChange { Workflow.setJointPain(it, index, v) }
-                    }
-                }
+                Prompt(
+                    question = "Did you have joint pain in this exercise?",
+                    answer = entry.jointPain?.let { "Joint pain: ${jointPainLabel(it).lowercase()}" },
+                    options = JointPain.entries,
+                    selected = entry.jointPain,
+                    label = ::jointPainLabel,
+                ) { v -> onChange { Workflow.setJointPain(it, index, v) } }
             }
             if (Workflow.asksPumpAndWorkload(block, index)) {
-                Prompt("How was the pump in your ${muscle.lower()}?") {
-                    Options(Pump.entries, feedback?.pump, ::pumpLabel) { v ->
-                        onChange { Workflow.updateFeedback(it, muscle) { f -> f.copy(pump = v) } }
-                    }
-                }
-                Prompt("How was the work for your ${muscle.lower()} today?") {
-                    Options(Workload.entries, feedback?.workload, ::workloadLabel) { v ->
-                        onChange { Workflow.updateFeedback(it, muscle) { f -> f.copy(workload = v) } }
-                    }
-                }
+                Prompt(
+                    question = "How was the pump in your ${muscle.lower()}?",
+                    answer = feedback?.pump?.let { "${muscle.displayName} pump: ${pumpLabel(it).lowercase()}" },
+                    options = Pump.entries,
+                    selected = feedback?.pump,
+                    label = ::pumpLabel,
+                ) { v -> onChange { Workflow.updateFeedback(it, muscle) { f -> f.copy(pump = v) } } }
+                Prompt(
+                    question = "How was the work for your ${muscle.lower()} today?",
+                    answer = feedback?.workload?.let { "${muscle.displayName} work: ${workloadLabel(it).lowercase()}" },
+                    options = Workload.entries,
+                    selected = feedback?.workload,
+                    label = ::workloadLabel,
+                ) { v -> onChange { Workflow.updateFeedback(it, muscle) { f -> f.copy(workload = v) } } }
             }
         }
     }
+}
+
+private fun collapsedSummary(rx: Prescription, done: Int, total: Int, complete: Boolean): String = when {
+    complete -> "Done: $done of $total sets"
+    done > 0 -> "$done of $total sets done"
+    else -> "${rx.sets} sets · ${suggestionText(rx)}"
 }
 
 @Composable
@@ -279,11 +322,24 @@ private fun SetRow(
 }
 
 @Composable
-private fun Prompt(question: String, content: @Composable () -> Unit) {
+private fun <T> Prompt(
+    question: String,
+    answer: String?,
+    options: List<T>,
+    selected: T?,
+    label: (T) -> String,
+    onSelect: (T) -> Unit,
+) {
+    var editing by remember { mutableStateOf(false) }
+    if (answer != null && !editing) {
+        // A small chip. Tap it to change the answer.
+        AssistChip(onClick = { editing = true }, label = { Text("✓ $answer") })
+        return
+    }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(question, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-            content()
+            Options(options, selected, label) { editing = false; onSelect(it) }
         }
     }
 }

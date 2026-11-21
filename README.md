@@ -22,9 +22,11 @@ OpenFitness is a hypertrophy training app for Android and iOS. It is built with 
 
 ## Screens
 
-| Start a block | Block overview | Workout | Feedback | Exercise library |
+| Start a block | Block overview | Workout | Feedback as chips | Exercise library |
 |---|---|---|---|---|
-| ![](docs/screenshots/android-01-start-block.png) | ![](docs/screenshots/android-03-overview-week2.png) | ![](docs/screenshots/android-04-workout.png) | ![](docs/screenshots/android-05-feedback.png) | ![](docs/screenshots/android-09-library.png) |
+| ![](docs/screenshots/android-01-start-block.png) | ![](docs/screenshots/android-03-overview-week2.png) | ![](docs/screenshots/android-05-workout-start.png) | ![](docs/screenshots/android-08-answers-as-chips.png) | ![](docs/screenshots/android-11-library.png) |
+
+A screen recording of the full flow is in [docs/screenshots/android-walkthrough.mp4](docs/screenshots/android-walkthrough.mp4).
 
 ## How the progression works
 

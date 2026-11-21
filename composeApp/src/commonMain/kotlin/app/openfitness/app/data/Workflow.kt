@@ -90,19 +90,34 @@ object Workflow {
 
     /**
      * True when the app asks for pump and workload at this exercise: it is the
-     * last exercise for its muscle in the session, and all its sets are done.
+     * last exercise for its muscle in the session, and all the sets for that
+     * muscle in the session are done.
      */
     fun asksPumpAndWorkload(block: Block, exerciseIndex: Int): Boolean {
         val w = block.active ?: return false
-        val entry = w.exercises[exerciseIndex]
-        if (!entry.allSetsDone) return false
-        val muscle = muscleOf(block, entry)
-        return w.exercises.indexOfLast { muscleOf(block, it) == muscle } == exerciseIndex
+        val muscle = muscleOf(block, w.exercises[exerciseIndex])
+        val forMuscle = w.exercises.withIndex().filter { muscleOf(block, it.value) == muscle }
+        return forMuscle.last().index == exerciseIndex && forMuscle.all { it.value.allSetsDone }
     }
 
     /** True when the app asks for joint pain at this exercise: all its sets are done. */
     fun asksJointPain(block: Block, exerciseIndex: Int): Boolean =
         block.active?.exercises?.getOrNull(exerciseIndex)?.allSetsDone == true
+
+    /**
+     * True when all the sets of the exercise are done and all the questions
+     * that the app asks at this exercise have an answer.
+     */
+    fun isExerciseComplete(block: Block, exerciseIndex: Int): Boolean {
+        val w = block.active ?: return false
+        val entry = w.exercises[exerciseIndex]
+        if (!entry.allSetsDone) return false
+        val fb = w.feedback[muscleOf(block, entry)]
+        if (asksSoreness(block, exerciseIndex) && fb?.soreness == null) return false
+        if (asksJointPain(block, exerciseIndex) && entry.jointPain == null) return false
+        if (asksPumpAndWorkload(block, exerciseIndex) && (fb?.pump == null || fb.workload == null)) return false
+        return true
+    }
 
     /**
      * Saves the active workout as a session. When this was the last day of the
