@@ -6,12 +6,23 @@ import app.openfitness.core.model.Muscle
 import app.openfitness.core.model.MuscleFeedback
 import app.openfitness.core.model.Prescription
 import app.openfitness.core.model.SessionRecord
+import app.openfitness.core.units.WeightUnit
 import kotlinx.serialization.Serializable
 
 /** All the data that the app stores on the device. */
 @Serializable
 data class AppData(
     val block: Block? = null,
+    val settings: Settings = Settings(),
+    /** Plans that the user made and saved. */
+    val customPlans: List<MesocyclePlan> = emptyList(),
+    /** The plan that is open in the planner, or null. */
+    val draft: MesocyclePlan? = null,
+)
+
+@Serializable
+data class Settings(
+    val unit: WeightUnit = WeightUnit.LB,
 )
 
 /** One value that the user enters for a set. Null means "not entered yet". */

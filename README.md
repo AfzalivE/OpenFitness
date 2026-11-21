@@ -2,21 +2,26 @@
 
 OpenFitness is a hypertrophy training app for Android and iOS. It is built with Kotlin Multiplatform.
 
-## Features (planned)
+## Features
 
 - Training blocks (mesocycles) of 3 to 8 hard weeks, then one deload week.
 - Target reps in reserve (RIR) that go down each week, from 3 to 0.
 - Feedback for each muscle: soreness, pump, and workload. Feedback for each exercise: joint pain.
 - Automatic changes to sets, weight, and reps from that feedback.
 - A built-in exercise library and plan templates.
+- A planner: make a plan from a template or from nothing, with 2 to 6 days, and save it.
+- Supersets: the sets go A1, B1, A2, B2. The rest timer starts after each round.
+- Add or remove sets in a workout. The next week starts from the sets that you did.
+- Weights in lb (default) or kg. The app keeps all weights in kg.
 
 ## Modules
 
 - `shared`: Domain model and progression logic. Pure Kotlin, no platform code. Targets: JVM (for tests), Android, iOS.
 - `composeApp`: The app UI and workflow, with Compose Multiplatform and Material 3. It is shared by Android and iOS.
-  - `data/Workflow.kt`: Start a block, start and finish a workout, roll over to the next week, swap an exercise.
+  - `data/Workflow.kt`: Start a block, start and finish a workout, add or remove sets, supersets, roll over to the next week, swap an exercise.
+  - `data/Planner.kt`: Make and change a plan: days, exercises, order, supersets, start sets, weekly volume, saved plans.
   - `data/AppStore.kt`: Keeps all app data in one JSON file on the device.
-  - `ui/`: The screens: start a block, block overview, workout, exercise library.
+  - `ui/`: The screens: start a block, planner, block overview, workout, exercise library, settings.
 - `androidApp`: The Android application (`app.openfitness`). It shows the `composeApp` UI.
 - `iosApp`: The Xcode project for iOS. It shows the `composeApp` UI.
 

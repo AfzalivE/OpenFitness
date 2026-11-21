@@ -7,6 +7,13 @@ import kotlinx.serialization.Serializable
 data class ExerciseSlot(
     val exerciseId: String,
     val muscle: Muscle,
+    /** Sets in the first week. Null means the engine splits the muscle's start sets. */
+    val startSets: Int? = null,
+    /**
+     * Slots next to each other with the same group are a superset.
+     * Null means a single exercise. See [TrainingDay.groups].
+     */
+    val supersetGroup: Int? = null,
 )
 
 @Serializable

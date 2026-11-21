@@ -48,6 +48,7 @@ fun OverviewScreen(
     block: Block,
     onWorkout: () -> Unit,
     onLibrary: () -> Unit,
+    onSettings: () -> Unit,
     onEndBlock: () -> Unit,
 ) {
     var confirmEnd by remember { mutableStateOf(false) }
@@ -58,7 +59,10 @@ fun OverviewScreen(
         topBar = {
             TopAppBar(
                 title = { Text(plan.name) },
-                actions = { TextButton(onClick = onLibrary) { Text("Exercises") } },
+                actions = {
+                    TextButton(onClick = onLibrary) { Text("Exercises") }
+                    TextButton(onClick = onSettings) { Text("Settings") }
+                },
             )
         },
     ) { padding ->

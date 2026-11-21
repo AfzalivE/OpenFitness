@@ -36,8 +36,14 @@ class MesocycleEngine(
     fun firstWeek(): List<List<Prescription>> {
         val sets = mutableMapOf<Pair<Int, Int>, Int>()
         for ((muscle, refs) in slotsByMuscle) {
-            val weekly = range(muscle).startSets.coerceAtLeast(MIN_SETS_PER_SLOT * refs.size)
-            distribute(weekly, refs.size).forEachIndexed { i, n -> sets[refs[i].dayIndex to refs[i].slotIndex] = n }
+            // Slots with their own start sets keep them. The other slots share the rest.
+            val (fixed, free) = refs.partition { it.slot.startSets != null }
+            fixed.forEach { sets[it.dayIndex to it.slotIndex] = it.slot.startSets!!.coerceIn(1, MAX_SETS_PER_SLOT) }
+            if (free.isNotEmpty()) {
+                val rest = range(muscle).startSets - fixed.sumOf { sets.getValue(it.dayIndex to it.slotIndex) }
+                val weekly = rest.coerceAtLeast(MIN_SETS_PER_SLOT * free.size)
+                distribute(weekly, free.size).forEachIndexed { i, n -> sets[free[i].dayIndex to free[i].slotIndex] = n }
+            }
         }
         val rir = RirSchedule.targetRir(0, plan.accumulationWeeks)
         return plan.days.mapIndexed { d, day ->
@@ -62,7 +68,8 @@ class MesocycleEngine(
 
         val newSets = mutableMapOf<Pair<Int, Int>, Int>()
         for ((muscle, refs) in slotsByMuscle) {
-            val oldSets = refs.map { ref -> byDay.getValue(ref.dayIndex).prescriptions[ref.slotIndex].sets }
+            // Start from the sets that the user did. If no set was logged, use the prescription.
+            val oldSets = refs.map { ref -> setsDone(byDay.getValue(ref.dayIndex), ref.slotIndex) }
             val planned = if (deload) {
                 oldSets.map { (it / 2).coerceAtLeast(1) }
             } else {
@@ -88,6 +95,17 @@ class MesocycleEngine(
                 Prescription(slot.exerciseId, newSets.getValue(d to s), nextRir, load.weightKg, load.targetReps, load.note)
             }
         }
+    }
+
+    /**
+     * The sets that the user did for a slot: the logged sets, or the
+     * prescribed sets when no set was logged. The user can add or remove
+     * sets in a workout, so this can differ from the prescription.
+     */
+    private fun setsDone(record: SessionRecord, slotIndex: Int): Int {
+        val rx = record.prescriptions[slotIndex]
+        val logged = record.resultFor(rx.exerciseId)?.sets?.size ?: 0
+        return if (logged > 0) logged.coerceAtMost(MAX_SETS_PER_SLOT) else rx.sets
     }
 
     companion object {

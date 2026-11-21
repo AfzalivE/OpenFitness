@@ -11,12 +11,19 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import app.openfitness.app.data.AppStore
+import app.openfitness.app.data.Planner
 import app.openfitness.app.data.Workflow
+import app.openfitness.app.ui.LibraryMode
 import app.openfitness.app.ui.LibraryScreen
 import app.openfitness.app.ui.OpenFitnessTheme
 import app.openfitness.app.ui.OverviewScreen
+import app.openfitness.app.ui.PlannerScreen
+import app.openfitness.app.ui.SettingsScreen
 import app.openfitness.app.ui.StartBlockScreen
 import app.openfitness.app.ui.WorkoutScreen
+import app.openfitness.core.library.ExerciseLibrary
+import app.openfitness.core.model.MesocyclePlan
+import app.openfitness.core.units.Units
 import kotlinx.serialization.Serializable
 
 /** Screens of the app. */
@@ -24,11 +31,15 @@ object Routes {
     @Serializable data object Start
     @Serializable data object Overview
     @Serializable data object Workout
+    @Serializable data object Planner
+    @Serializable data object Settings
 
-    /** The exercise library. With a day and a slot, the user picks an exercise to swap in. */
-    @Serializable data class Library(val dayIndex: Int = -1, val slotIndex: Int = -1) {
-        val isSwap: Boolean get() = dayIndex >= 0 && slotIndex >= 0
-    }
+    /**
+     * The exercise library.
+     * With [swapDay] and [swapSlot], the user picks an exercise to swap in.
+     * With [addDay], the user picks an exercise to add to that day of the planner draft.
+     */
+    @Serializable data class Library(val swapDay: Int = -1, val swapSlot: Int = -1, val addDay: Int = -1)
 }
 
 @Composable
@@ -37,14 +48,55 @@ fun App(store: AppStore) {
         val data by store.state.collectAsState()
         val nav = rememberNavController()
         val start: Any = remember { if (store.state.value.block != null) Routes.Overview else Routes.Start }
+        val unit = data.settings.unit
+        val exercises = remember(unit) { Units.exercisesFor(unit, ExerciseLibrary.all) }
+
+        fun startBlock(plan: MesocyclePlan, weeks: Int) {
+            store.update { it.copy(block = Workflow.startBlock(plan, weeks), draft = null) }
+            nav.navigate(Routes.Overview) { popUpTo(nav.graph.id) { inclusive = true } }
+        }
 
         NavHost(navController = nav, startDestination = start) {
             composable<Routes.Start> {
                 StartBlockScreen(
-                    onStart = { template, weeks ->
-                        store.update { it.copy(block = Workflow.startBlock(template, weeks)) }
-                        nav.navigate(Routes.Overview) { popUpTo(nav.graph.id) { inclusive = true } }
+                    customPlans = data.customPlans,
+                    onStart = ::startBlock,
+                    onNewPlan = {
+                        store.update { it.copy(draft = Planner.newPlan()) }
+                        nav.navigate(Routes.Planner)
                     },
+                    onEditPlan = { plan, isTemplate ->
+                        store.update { it.copy(draft = if (isTemplate) Planner.fromTemplate(plan) else plan) }
+                        nav.navigate(Routes.Planner)
+                    },
+                    onDeletePlan = { plan -> store.update { Planner.delete(it, plan.name) } },
+                    onSettings = { nav.navigate(Routes.Settings) },
+                )
+            }
+            composable<Routes.Planner> {
+                val draft = data.draft
+                if (draft != null) {
+                    PlannerScreen(
+                        plan = draft,
+                        onChange = { change -> store.update { d -> d.draft?.let { d.copy(draft = change(it)) } ?: d } },
+                        onAddExercise = { day -> nav.navigate(Routes.Library(addDay = day)) },
+                        onSave = {
+                            store.update { Planner.save(it, draft).copy(draft = null) }
+                            nav.popBackStack()
+                        },
+                        onStart = {
+                            store.update { Planner.save(it, draft) }
+                            startBlock(draft, draft.accumulationWeeks)
+                        },
+                        onBack = { nav.popBackStack() },
+                    )
+                }
+            }
+            composable<Routes.Settings> {
+                SettingsScreen(
+                    settings = data.settings,
+                    onUnit = { u -> store.update { it.copy(settings = it.settings.copy(unit = u)) } },
+                    onBack = { nav.popBackStack() },
                 )
             }
             composable<Routes.Overview> {
@@ -55,10 +107,11 @@ fun App(store: AppStore) {
                     OverviewScreen(
                         block = block,
                         onWorkout = {
-                            store.updateBlock(Workflow::startWorkout)
+                            store.updateBlock { Workflow.startWorkout(it, unit, exercises) }
                             nav.navigate(Routes.Workout) { launchSingleTop = true }
                         },
                         onLibrary = { nav.navigate(Routes.Library()) },
+                        onSettings = { nav.navigate(Routes.Settings) },
                         onEndBlock = { store.update { it.copy(block = null) } },
                     )
                 }
@@ -69,10 +122,11 @@ fun App(store: AppStore) {
                 if (block?.active != null) {
                     WorkoutScreen(
                         block = block,
+                        unit = unit,
                         onChange = store::updateBlock,
-                        onSwap = { day, slot -> nav.navigate(Routes.Library(day, slot)) },
+                        onSwap = { day, slot -> nav.navigate(Routes.Library(swapDay = day, swapSlot = slot)) },
                         onFinish = {
-                            store.updateBlock { Workflow.finishWorkout(it) }
+                            store.updateBlock { Workflow.finishWorkout(it, exercises) }
                             nav.popBackStack(Routes.Overview, inclusive = false)
                         },
                         onBack = { nav.popBackStack() },
@@ -81,12 +135,28 @@ fun App(store: AppStore) {
             }
             composable<Routes.Library> { entry ->
                 val route = entry.toRoute<Routes.Library>()
+                val block = data.block
+                val draft = data.draft
+                val mode = when {
+                    route.swapDay >= 0 && block != null -> {
+                        val day = block.plan.days[route.swapDay]
+                        val slot = day.slots[route.swapSlot]
+                        LibraryMode.Swap(day.name, slot.muscle, slot.exerciseId, day.slots.map { it.exerciseId }.toSet())
+                    }
+                    route.addDay >= 0 && draft != null -> {
+                        val day = draft.days[route.addDay]
+                        LibraryMode.Add(day.name, day.slots.map { it.exerciseId }.toSet())
+                    }
+                    else -> LibraryMode.Browse
+                }
                 LibraryScreen(
-                    block = data.block,
-                    dayIndex = route.dayIndex.takeIf { route.isSwap },
-                    slotIndex = route.slotIndex.takeIf { route.isSwap },
+                    mode = mode,
                     onPick = { id ->
-                        store.updateBlock { Workflow.swapExercise(it, route.dayIndex, route.slotIndex, id) }
+                        when (mode) {
+                            is LibraryMode.Swap -> store.updateBlock { Workflow.swapExercise(it, route.swapDay, route.swapSlot, id) }
+                            is LibraryMode.Add -> store.update { d -> d.draft?.let { d.copy(draft = Planner.addExercise(it, route.addDay, id)) } ?: d }
+                            LibraryMode.Browse -> Unit
+                        }
                         nav.popBackStack()
                     },
                     onBack = { nav.popBackStack() },

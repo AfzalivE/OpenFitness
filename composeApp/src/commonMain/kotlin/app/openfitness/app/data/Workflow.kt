@@ -9,7 +9,10 @@ import app.openfitness.core.model.MesocyclePlan
 import app.openfitness.core.model.Muscle
 import app.openfitness.core.model.MuscleFeedback
 import app.openfitness.core.model.SessionRecord
+import app.openfitness.core.model.groups
 import app.openfitness.core.progression.MesocycleEngine
+import app.openfitness.core.units.Units
+import app.openfitness.core.units.WeightUnit
 
 /**
  * The training workflow. All functions are pure: they take a [Block] and
@@ -17,6 +20,7 @@ import app.openfitness.core.progression.MesocycleEngine
  */
 object Workflow {
     const val MIN_HARD_WEEKS = 3
+    const val MAX_SETS_IN_WORKOUT = 10
     const val MAX_HARD_WEEKS = 8
 
     /** Text that the UI shows for a slot that the user swapped. */
@@ -31,12 +35,20 @@ object Workflow {
         exercises: Map<String, Exercise> = ExerciseLibrary.byId,
     ): Block {
         require(hardWeeks in MIN_HARD_WEEKS..MAX_HARD_WEEKS) { "hardWeeks must be in $MIN_HARD_WEEKS..$MAX_HARD_WEEKS" }
+        require(template.days.all { it.slots.isNotEmpty() }) { "Each day must have at least one exercise" }
         val plan = template.copy(accumulationWeeks = hardWeeks)
         return Block(plan = plan, weeks = listOf(MesocycleEngine(plan, exercises).firstWeek()))
     }
 
-    /** Starts the next workout of the current week. If a workout is in progress, this does nothing. */
-    fun startWorkout(block: Block): Block {
+    /**
+     * Starts the next workout of the current week. If a workout is in progress,
+     * this does nothing. The suggested weights are rounded to the load steps of [unit].
+     */
+    fun startWorkout(
+        block: Block,
+        unit: WeightUnit = WeightUnit.KG,
+        exercises: Map<String, Exercise> = ExerciseLibrary.byId,
+    ): Block {
         if (block.active != null) return block
         val day = block.nextDayIndex ?: return block
         val week = block.currentWeek
@@ -44,7 +56,10 @@ object Workflow {
             ExerciseEntry(
                 slotIndex = slot,
                 exerciseId = rx.exerciseId,
-                sets = List(rx.sets) { SetEntry(weightKg = rx.weightKg, reps = rx.targetReps) },
+                sets = List(rx.sets) {
+                    val kg = rx.weightKg?.let { w -> Units.toKg(Units.display(w, exercises.getValue(rx.exerciseId), unit), unit) }
+                    SetEntry(weightKg = kg, reps = rx.targetReps)
+                },
             )
         }
         return block.copy(active = ActiveWorkout(week, day, exercises))
@@ -62,6 +77,49 @@ object Workflow {
                 e.copy(sets = e.sets.mapIndexed { i, s -> if (i == setIndex) change(s) else s })
             }
         }
+
+    /** Adds a set to an exercise in this workout. It copies the weight and reps of the last set. */
+    fun addSet(block: Block, exerciseIndex: Int): Block = block.updateActive { w ->
+        w.updateExercise(exerciseIndex) { e ->
+            if (e.sets.size >= MAX_SETS_IN_WORKOUT) e
+            else e.copy(sets = e.sets + (e.sets.lastOrNull()?.copy(done = false) ?: SetEntry()))
+        }
+    }
+
+    /** Removes the last set that is not done. An exercise keeps at least one set. */
+    fun removeSet(block: Block, exerciseIndex: Int): Block = block.updateActive { w ->
+        w.updateExercise(exerciseIndex) { e ->
+            val i = e.sets.indexOfLast { !it.done }
+            if (e.sets.size <= 1 || i < 0) e else e.copy(sets = e.sets.filterIndexed { j, _ -> j != i })
+        }
+    }
+
+    /** The exercise indices of the active workout, in groups (single exercises and supersets). */
+    fun workoutGroups(block: Block): List<List<Int>> {
+        val w = block.active ?: return emptyList()
+        val day = block.plan.days[w.dayIndex]
+        return day.groups().map { g -> g.map { slot -> w.exercises.indexOfFirst { it.slotIndex == slot } } }
+    }
+
+    /**
+     * True when the rest timer starts after set [setIndex] of an exercise is
+     * done. For a single exercise, that is after each set. For a superset, it
+     * is after the last exercise of the round: all exercises of the superset
+     * that have this set are done with it.
+     */
+    fun startsRest(block: Block, exerciseIndex: Int, setIndex: Int): Boolean {
+        val w = block.active ?: return false
+        val group = workoutGroups(block).firstOrNull { exerciseIndex in it } ?: return true
+        return group.all { i -> w.exercises[i].sets.getOrNull(setIndex)?.done ?: true }
+    }
+
+    /** Puts an exercise and the next one in a superset. This changes the plan for the next weeks too. */
+    fun linkWithNext(block: Block, dayIndex: Int, slotIndex: Int): Block =
+        block.copy(plan = Planner.linkWithNext(block.plan, dayIndex, slotIndex))
+
+    /** Splits a superset into single exercises. This changes the plan for the next weeks too. */
+    fun splitSuperset(block: Block, dayIndex: Int, slotIndex: Int): Block =
+        block.copy(plan = Planner.splitSuperset(block.plan, dayIndex, slotIndex))
 
     fun setJointPain(block: Block, exerciseIndex: Int, pain: JointPain): Block =
         block.updateActive { w -> w.updateExercise(exerciseIndex) { it.copy(jointPain = pain) } }
