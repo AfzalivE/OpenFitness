@@ -1,5 +1,7 @@
 rootProject.name = "openfitness"
 
+enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
+
 pluginManagement {
     repositories {
         google()
@@ -16,3 +18,5 @@ dependencyResolutionManagement {
 }
 
 include(":shared")
+include(":composeApp")
+include(":androidApp")

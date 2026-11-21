@@ -1,5 +1,7 @@
 package app.openfitness.core.model
 
+import kotlinx.serialization.Serializable
+
 /** A muscle group that the app tracks weekly volume for. */
 enum class Muscle(val displayName: String) {
     CHEST("Chest"),
@@ -24,6 +26,7 @@ enum class Muscle(val displayName: String) {
  * [startSets] is the weekly volume in the first week of a block.
  * [maxSets] is the highest weekly volume that the app will program.
  */
+@Serializable
 data class VolumeRange(val startSets: Int, val maxSets: Int) {
     init {
         require(startSets in 0..maxSets) { "startSets must be in 0..maxSets" }
