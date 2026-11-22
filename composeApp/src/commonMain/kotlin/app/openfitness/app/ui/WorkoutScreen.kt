@@ -1,8 +1,11 @@
 package app.openfitness.app.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -11,30 +14,40 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,18 +59,23 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.openfitness.app.data.Block
-import app.openfitness.app.data.ExerciseEntry
 import app.openfitness.app.data.Workflow
+import app.openfitness.app.data.Workflow.Question
+import app.openfitness.app.data.Workflow.QuestionKind
 import app.openfitness.core.library.ExerciseLibrary
 import app.openfitness.core.model.Exercise
 import app.openfitness.core.model.JointPain
 import app.openfitness.core.model.LoadType
 import app.openfitness.core.model.Muscle
-import app.openfitness.core.model.Prescription
 import app.openfitness.core.model.Pump
 import app.openfitness.core.model.Soreness
 import app.openfitness.core.model.Workload
@@ -87,9 +105,14 @@ fun WorkoutScreen(
 ) {
     val workout = block.active ?: return
     val day = block.plan.days[workout.dayIndex]
+    val rir = block.weeks[workout.week][workout.dayIndex].firstOrNull()?.targetRir
     var restLeft by rememberSaveable { mutableIntStateOf(0) }
     var restRun by rememberSaveable { mutableIntStateOf(0) } // Changes to restart the timer.
     var confirmFinish by remember { mutableStateOf(false) }
+    // Questions that the user closed without an answer. They stay as chips on the card.
+    var skipped by remember { mutableStateOf(setOf<Question>()) }
+    // A question that the user opened from a chip.
+    var editing by remember { mutableStateOf<Question?>(null) }
 
     LaunchedEffect(restRun) {
         while (restLeft > 0) {
@@ -98,29 +121,48 @@ fun WorkoutScreen(
         }
     }
 
+    val doneSets = workout.exercises.sumOf { e -> e.sets.count { it.done } }
+    val allSets = workout.exercises.sumOf { it.sets.size }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Week ${workout.week + 1}: ${day.name}") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
-            )
+            Column {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(day.name, style = MaterialTheme.typography.titleLarge)
+                            Text(
+                                "Week ${workout.week + 1} · " + if (block.plan.isDeload(workout.week)) "Deload week" else "Target RIR ${rir ?: "-"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                    navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
+                )
+                LinearProgressIndicator(
+                    progress = { if (allSets == 0) 0f else doneSets.toFloat() / allSets },
+                    modifier = Modifier.fillMaxWidth().height(Sizes.progressBar).semantics { contentDescription = "$doneSets of $allSets sets done" },
+                    color = statusColors.done,
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    drawStopIndicator = {},
+                    gapSize = 0.dp,
+                )
+            }
         },
         bottomBar = {
-            Surface(tonalElevation = 3.dp) {
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
                 Row(
-                    Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
+                    Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = Space.l, vertical = Space.s),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // The rest timer starts when a set (or a superset round) is done. It shows only while it runs.
                     if (restLeft > 0) {
-                        Text("Rest ${formatSeconds(restLeft)}", style = MaterialTheme.typography.titleMedium)
+                        Text("Rest ${formatSeconds(restLeft)}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                         TextButton(onClick = { restLeft += 30 }) { Text("+30 s") }
                         TextButton(onClick = { restLeft = 0 }) { Text("Skip") }
                     } else {
-                        Text(
-                            "${workout.exercises.sumOf { e -> e.sets.count { it.done } }} of ${workout.exercises.sumOf { it.sets.size }} sets done",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        Text("$doneSets of $allSets sets done", style = MaterialTheme.typography.bodyMedium)
                     }
                     Spacer(Modifier.weight(1f))
                     Button(onClick = {
@@ -133,14 +175,14 @@ fun WorkoutScreen(
         val groups = Workflow.workoutGroups(block)
         // The current exercise is the first one with sets that are not done.
         // Its group and the groups before it are open. The next groups are closed.
-        // A tap on a card header opens or closes that card.
+        // A tap on a card header opens or closes that card. Saved, so a rotation keeps it.
         val current = workout.exercises.indexOfFirst { !it.allSetsDone }.let { if (it < 0) workout.exercises.lastIndex else it }
-        // Saved, so that open and closed cards stay the same after a rotation.
         var toggled by rememberSaveable(stateSaver = ToggleSaver) { mutableStateOf(mapOf<Int, Boolean>()) }
+        val questions = Workflow.questions(block)
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = Space.m, vertical = Space.m),
+            verticalArrangement = Arrangement.spacedBy(Space.s),
         ) {
             items(groups, key = { g -> g.joinToString("-") { "${workout.exercises[it].slotIndex}:${workout.exercises[it].exerciseId}" } }) { group ->
                 val key = workout.exercises[group.first()].slotIndex
@@ -151,10 +193,13 @@ fun WorkoutScreen(
                     isLastGroup = group == groups.last(),
                     unit = unit,
                     expanded = toggled[key] ?: default,
+                    questions = questions.filter { it.exerciseIndex in group },
+                    skipped = skipped,
+                    onOpenQuestion = { editing = it },
                     onToggle = { toggled = toggled + (key to !(toggled[key] ?: default)) },
                     onChange = onChange,
                     onSetDone = { i, s ->
-                        val after = Workflow.updateSet(block, i, s) { it.copy(done = true) }
+                        val after = Workflow.completeSet(block, i, s)
                         if (Workflow.startsRest(after, i, s)) {
                             restLeft = DEFAULT_REST_SECONDS
                             restRun++
@@ -162,6 +207,24 @@ fun WorkoutScreen(
                     },
                     onSwap = { slot -> onSwap(workout.dayIndex, slot) },
                 )
+            }
+        }
+    }
+
+    // Feedback questions open in a bottom sheet at their trigger, one at a time.
+    val asked = editing ?: Workflow.nextQuestion(block, skipped)
+    if (asked != null) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = {
+                if (editing != null) editing = null else skipped = skipped + asked
+            },
+            sheetState = sheetState,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ) {
+            QuestionSheet(block, asked) { answer ->
+                onChange(answer)
+                editing = null
             }
         }
     }
@@ -177,7 +240,64 @@ fun WorkoutScreen(
     }
 }
 
+/** The content of the feedback sheet: the question and its answers. */
+@Composable
+private fun QuestionSheet(block: Block, q: Question, onAnswer: ((Block) -> Block) -> Unit) {
+    val w = block.active ?: return
+    val entry = w.exercises[q.exerciseIndex]
+    val exercise = ExerciseLibrary.byId.getValue(entry.exerciseId)
+    val fb = w.feedback[q.muscle]
+    val m = q.muscle.lower()
+    Column(Modifier.fillMaxWidth().padding(start = Space.l, end = Space.l, bottom = Space.l), verticalArrangement = Arrangement.spacedBy(Space.m)) {
+        Text(exercise.name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        when (q.kind) {
+            QuestionKind.SORENESS -> {
+                Text("How sore was your $m after the last session?", style = MaterialTheme.typography.titleMedium)
+                Options(Soreness.entries, fb?.soreness, ::sorenessLabel) { v -> onAnswer { Workflow.updateFeedback(it, q.muscle) { f -> f.copy(soreness = v) } } }
+            }
+            QuestionKind.JOINT_PAIN -> {
+                Text("Did you have joint pain in this exercise?", style = MaterialTheme.typography.titleMedium)
+                Options(JointPain.entries, entry.jointPain, ::jointPainLabel) { v -> onAnswer { Workflow.setJointPain(it, q.exerciseIndex, v) } }
+            }
+            QuestionKind.PUMP -> {
+                Text("How was the pump in your $m?", style = MaterialTheme.typography.titleMedium)
+                Options(Pump.entries, fb?.pump, ::pumpLabel) { v -> onAnswer { Workflow.updateFeedback(it, q.muscle) { f -> f.copy(pump = v) } } }
+            }
+            QuestionKind.WORKLOAD -> {
+                Text("How was the work for your $m today?", style = MaterialTheme.typography.titleMedium)
+                Options(Workload.entries, fb?.workload, ::workloadLabel) { v -> onAnswer { Workflow.updateFeedback(it, q.muscle) { f -> f.copy(workload = v) } } }
+            }
+        }
+        Text(
+            "Close this to answer later from the card.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** The short text of an answer, for the chip, or null if there is no answer. */
+private fun answerText(block: Block, q: Question): String? {
+    val w = block.active ?: return null
+    val fb = w.feedback[q.muscle]
+    val m = q.muscle.displayName
+    return when (q.kind) {
+        QuestionKind.SORENESS -> fb?.soreness?.let { "$m soreness: ${sorenessLabel(it).lowercase()}" }
+        QuestionKind.JOINT_PAIN -> w.exercises[q.exerciseIndex].jointPain?.let { "Joint pain: ${jointPainLabel(it).lowercase()}" }
+        QuestionKind.PUMP -> fb?.pump?.let { "$m pump: ${pumpLabel(it).lowercase()}" }
+        QuestionKind.WORKLOAD -> fb?.workload?.let { "$m work: ${workloadLabel(it).lowercase()}" }
+    }
+}
+
+private fun questionName(q: Question): String = when (q.kind) {
+    QuestionKind.SORENESS -> "${q.muscle.displayName} soreness"
+    QuestionKind.JOINT_PAIN -> "Joint pain"
+    QuestionKind.PUMP -> "${q.muscle.displayName} pump"
+    QuestionKind.WORKLOAD -> "${q.muscle.displayName} work"
+}
+
 /** One card for a single exercise or for a superset. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GroupCard(
     block: Block,
@@ -185,6 +305,9 @@ private fun GroupCard(
     isLastGroup: Boolean,
     unit: WeightUnit,
     expanded: Boolean,
+    questions: List<Question>,
+    skipped: Set<Question>,
+    onOpenQuestion: (Question) -> Unit,
     onToggle: () -> Unit,
     onChange: ((Block) -> Block) -> Unit,
     onSetDone: (exerciseIndex: Int, setIndex: Int) -> Unit,
@@ -199,80 +322,108 @@ private fun GroupCard(
     val done = entries.sumOf { e -> e.sets.count { it.done } }
     val total = entries.sumOf { it.sets.size }
     val complete = group.all { Workflow.isExerciseComplete(block, it) }
+    val firstSlot = entries.first().slotIndex
 
     Card(
+        shape = RoundedCornerShape(Sizes.cardRadius),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = if (superset) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        border = if (superset) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(Sizes.cardPadding), verticalArrangement = Arrangement.spacedBy(Space.s)) {
             // Header: tap to open or close.
-            Row(Modifier.fillMaxWidth().clickable(onClick = onToggle), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
+            Row(Modifier.fillMaxWidth().heightIn(min = Sizes.touch).clickable(onClick = onToggle), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     if (superset) {
-                        Text("Superset", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                        exercises.forEachIndexed { i, ex -> Text("${letters[i]}  ${ex.name}", style = MaterialTheme.typography.titleMedium) }
+                        Text("SUPERSET", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        Text(exercises.joinToString(" + ") { it.name }, style = MaterialTheme.typography.titleMedium)
                     } else {
-                        Text(exercises[0].name, style = MaterialTheme.typography.titleMedium)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(exercises[0].name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f, fill = false))
+                            Spacer(Modifier.width(Space.s))
+                            MuscleTag(Workflow.muscleOf(block, entries[0]))
+                        }
                     }
-                    val summary = when {
-                        expanded && !superset -> Workflow.muscleOf(block, entries[0]).displayName
-                        expanded -> entries.joinToString(" · ") { Workflow.muscleOf(block, it).displayName }
-                        complete -> "Done: $done of $total sets"
-                        done > 0 -> "$done of $total sets done"
-                        superset -> "$total sets in rounds"
-                        else -> "${prescriptions[0].sets} sets · ${suggestionText(prescriptions[0], exercises[0], unit)}"
+                    if (!expanded) {
+                        Text(
+                            when {
+                                complete -> "Done · $done of $total sets"
+                                done > 0 -> "$done of $total sets done"
+                                superset -> "$total sets in rounds"
+                                prescriptions[0].weightKg == null && prescriptions[0].targetReps == null -> "${prescriptions[0].sets} sets"
+                                else -> "${prescriptions[0].sets} sets · ${suggestionText(prescriptions[0], exercises[0], unit)}"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (complete) statusColors.done else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                    Text(
-                        summary,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (complete && !expanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
-                if (expanded && !superset && !entries[0].anySetDone) {
-                    TextButton(onClick = { onSwap(entries[0].slotIndex) }) { Text("Swap") }
+                if (!superset) {
+                    ExerciseMenu(
+                        canSwap = !entries[0].anySetDone,
+                        canAdd = entries[0].sets.size < Workflow.MAX_SETS_IN_WORKOUT,
+                        canRemove = entries[0].sets.size > 1 && entries[0].sets.any { !it.done },
+                        linkLabel = if (!isLastGroup) "Superset with next" else null,
+                        onSwap = { onSwap(entries[0].slotIndex) },
+                        onAdd = { onChange { Workflow.addSet(it, group[0]) } },
+                        onRemove = { onChange { Workflow.removeSet(it, group[0]) } },
+                        onLink = { onChange { Workflow.linkWithNext(it, workout.dayIndex, entries[0].slotIndex) } },
+                    )
+                } else {
+                    GroupMenu(onSplit = { onChange { Workflow.splitSuperset(it, workout.dayIndex, firstSlot) } })
                 }
                 Text(
                     if (expanded) "▴" else "▾",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 8.dp),
                 )
             }
             if (!expanded) return@Column
 
-            // Facts for each exercise.
+            // What to do, for each exercise.
             group.forEachIndexed { m, index ->
-                if (superset) HorizontalDivider()
-                ExerciseFacts(
-                    block = block,
-                    index = index,
-                    entry = entries[m],
-                    exercise = exercises[m],
-                    rx = prescriptions[m],
-                    letter = if (superset) letters[m] else null,
-                    unit = unit,
-                    onChange = onChange,
-                    onSwap = if (superset && !entries[m].anySetDone) ({ onSwap(entries[m].slotIndex) }) else null,
+                if (superset) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${letters[m]}  ${exercises[m].name}", style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.width(Space.s))
+                        MuscleTag(Workflow.muscleOf(block, entries[m]))
+                        Spacer(Modifier.weight(1f))
+                        ExerciseMenu(
+                            canSwap = !entries[m].anySetDone,
+                            canAdd = entries[m].sets.size < Workflow.MAX_SETS_IN_WORKOUT,
+                            canRemove = entries[m].sets.size > 1 && entries[m].sets.any { !it.done },
+                            linkLabel = null,
+                            onSwap = { onSwap(entries[m].slotIndex) },
+                            onAdd = { onChange { Workflow.addSet(it, index) } },
+                            onRemove = { onChange { Workflow.removeSet(it, index) } },
+                            onLink = {},
+                        )
+                    }
+                }
+                Text(
+                    "${suggestionText(prescriptions[m], exercises[m], unit)} · ${repRangeText(exercises[m])}",
+                    style = MaterialTheme.typography.bodyMedium,
                 )
+                prescriptions[m].note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = statusColors.warning) }
             }
 
-            HorizontalDivider()
-            // Set rows. In a superset the order goes A1, B1, A2, B2, ...
+            // The set table. In a superset the order goes A1, B1, A2, B2, ...
+            SetTableHeader(unit)
             val rounds = entries.maxOf { it.sets.size }
             for (r in 0 until rounds) {
                 group.forEachIndexed { m, index ->
                     val set = entries[m].sets.getOrNull(r) ?: return@forEachIndexed
                     SetRow(
-                        label = if (superset) "${letters[m]}${r + 1}" else "Set ${r + 1}",
+                        label = if (superset) "${letters[m]}${r + 1}" else "${r + 1}",
                         key = "${entries[m].exerciseId}-$r-$unit",
                         exercise = exercises[m],
                         unit = unit,
                         weight = set.weightIn(unit),
                         reps = set.reps,
+                        rir = prescriptions[m].targetRir,
                         done = set.done,
+                        canComplete = Workflow.canComplete(set, exercises[m]),
                         onWeight = { v -> onChange { Workflow.updateSet(it, index, r) { e -> e.withWeight(v, unit) } } },
                         onReps = { v -> onChange { Workflow.updateSet(it, index, r) { e -> e.copy(reps = v) } } },
-                        canComplete = Workflow.canComplete(set, exercises[m]),
                         onDone = { d ->
                             if (d) {
                                 onChange { Workflow.completeSet(it, index, r) }
@@ -285,21 +436,15 @@ private fun GroupCard(
                 }
             }
 
-            // Questions that show only after the sets are done.
-            group.forEachIndexed { m, index ->
-                FeedbackPrompts(block, index, entries[m], if (superset) exercises[m].name else null, onChange)
-            }
-
-            // Superset actions. They change the plan for this day in the next weeks too.
-            Row {
-                val firstSlot = entries.first().slotIndex
-                if (superset) {
-                    TextButton(onClick = { onChange { Workflow.splitSuperset(it, workout.dayIndex, firstSlot) } }) {
-                        Text("Split superset")
-                    }
-                } else if (!isLastGroup) {
-                    TextButton(onClick = { onChange { Workflow.linkWithNext(it, workout.dayIndex, entries.last().slotIndex) } }) {
-                        Text("Superset with next")
+            // Answers as small chips. A question that the user closed shows as a chip to answer later.
+            if (questions.isNotEmpty()) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
+                    questions.forEach { q ->
+                        val answer = answerText(block, q)
+                        when {
+                            answer != null -> SmallChip("✓ $answer") { onOpenQuestion(q) }
+                            q in skipped -> SmallChip("Answer: ${questionName(q).lowercase()}", warning = true) { onOpenQuestion(q) }
+                        }
                     }
                 }
             }
@@ -307,98 +452,92 @@ private fun GroupCard(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ExerciseFacts(
-    block: Block,
-    index: Int,
-    entry: ExerciseEntry,
-    exercise: Exercise,
-    rx: Prescription,
-    letter: String?,
-    unit: WeightUnit,
-    onChange: ((Block) -> Block) -> Unit,
-    onSwap: (() -> Unit)?,
+private fun SmallChip(text: String, warning: Boolean = false, onClick: () -> Unit) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text(text, style = MaterialTheme.typography.labelMedium) },
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            labelColor = if (warning) statusColors.warning else MaterialTheme.colorScheme.onSurface,
+        ),
+        border = null,
+    )
+}
+
+@Composable
+private fun MuscleTag(muscle: Muscle) {
+    Text(
+        muscle.displayName.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
+}
+
+/** The ⋮ menu of one exercise. */
+@Composable
+private fun ExerciseMenu(
+    canSwap: Boolean,
+    canAdd: Boolean,
+    canRemove: Boolean,
+    linkLabel: String?,
+    onSwap: () -> Unit,
+    onAdd: () -> Unit,
+    onRemove: () -> Unit,
+    onLink: () -> Unit,
 ) {
-    val muscle = Workflow.muscleOf(block, entry)
-    val feedback = block.active?.feedback?.get(muscle)
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (letter != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("$letter  ${exercise.name}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                if (onSwap != null) TextButton(onClick = onSwap) { Text("Swap") }
-            }
+    var open by remember { mutableStateOf(false) }
+    Box {
+        MenuButton { open = true }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text("Add a set") }, enabled = canAdd, onClick = { open = false; onAdd() })
+            DropdownMenuItem(text = { Text("Remove a set") }, enabled = canRemove, onClick = { open = false; onRemove() })
+            DropdownMenuItem(text = { Text("Swap exercise") }, enabled = canSwap, onClick = { open = false; onSwap() })
+            if (linkLabel != null) DropdownMenuItem(text = { Text(linkLabel) }, onClick = { open = false; onLink() })
         }
-        if (Workflow.asksSoreness(block, index)) {
-            Prompt(
-                question = "How sore was your ${muscle.lower()} after the last session?",
-                answer = feedback?.soreness?.let { "${muscle.displayName} soreness: ${sorenessLabel(it).lowercase()}" },
-                options = Soreness.entries,
-                selected = feedback?.soreness,
-                label = ::sorenessLabel,
-            ) { v -> onChange { Workflow.updateFeedback(it, muscle) { f -> f.copy(soreness = v) } } }
-        }
-        Text(
-            "${rx.sets} sets · ${repRangeText(exercise)} · ${rirText(rx.targetRir)}",
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(suggestionText(rx, exercise, unit), style = MaterialTheme.typography.bodyMedium)
-        rx.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary) }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "${entry.sets.size} sets today",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(
-                onClick = { onChange { Workflow.removeSet(it, index) } },
-                enabled = entry.sets.size > 1 && entry.sets.any { !it.done },
-            ) { Text("− Set") }
-            TextButton(
-                onClick = { onChange { Workflow.addSet(it, index) } },
-                enabled = entry.sets.size < Workflow.MAX_SETS_IN_WORKOUT,
-            ) { Text("+ Set") }
+    }
+}
+
+/** The ⋮ menu of a superset. */
+@Composable
+private fun GroupMenu(onSplit: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        MenuButton(description = "Superset menu") { open = true }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text("Split superset") }, onClick = { open = false; onSplit() })
         }
     }
 }
 
 @Composable
-private fun FeedbackPrompts(
-    block: Block,
-    index: Int,
-    entry: ExerciseEntry,
-    name: String?,
-    onChange: ((Block) -> Block) -> Unit,
-) {
-    val muscle = Workflow.muscleOf(block, entry)
-    val feedback = block.active?.feedback?.get(muscle)
-    if (Workflow.asksJointPain(block, index)) {
-        Prompt(
-            question = if (name != null) "Did you have joint pain in $name?" else "Did you have joint pain in this exercise?",
-            answer = entry.jointPain?.let { "${name?.let { n -> "$n joint pain" } ?: "Joint pain"}: ${jointPainLabel(it).lowercase()}" },
-            options = JointPain.entries,
-            selected = entry.jointPain,
-            label = ::jointPainLabel,
-        ) { v -> onChange { Workflow.setJointPain(it, index, v) } }
+private fun MenuButton(description: String = "Exercise menu", onClick: () -> Unit) {
+    Box(
+        Modifier.size(Sizes.touch).clickable(onClick = onClick).semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("⋮", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    if (Workflow.asksPumpAndWorkload(block, index)) {
-        Prompt(
-            question = "How was the pump in your ${muscle.lower()}?",
-            answer = feedback?.pump?.let { "${muscle.displayName} pump: ${pumpLabel(it).lowercase()}" },
-            options = Pump.entries,
-            selected = feedback?.pump,
-            label = ::pumpLabel,
-        ) { v -> onChange { Workflow.updateFeedback(it, muscle) { f -> f.copy(pump = v) } } }
-        Prompt(
-            question = "How was the work for your ${muscle.lower()} today?",
-            answer = feedback?.workload?.let { "${muscle.displayName} work: ${workloadLabel(it).lowercase()}" },
-            options = Workload.entries,
-            selected = feedback?.workload,
-            label = ::workloadLabel,
-        ) { v -> onChange { Workflow.updateFeedback(it, muscle) { f -> f.copy(workload = v) } } }
+}
+
+private val SetCol = 36.dp
+private val RirCol = 44.dp
+
+@Composable
+private fun SetTableHeader(unit: WeightUnit) {
+    val style = MaterialTheme.typography.labelSmall
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(Modifier.fillMaxWidth().padding(top = Space.xs), verticalAlignment = Alignment.CenterVertically) {
+        Text("SET", style = style, color = color, modifier = Modifier.width(SetCol))
+        Text(unit.label.uppercase(), style = style, color = color, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+        Text("REPS", style = style, color = color, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+        Text("RIR", style = style, color = color, textAlign = TextAlign.Center, modifier = Modifier.width(RirCol))
+        Spacer(Modifier.width(Sizes.touch))
     }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 @Composable
@@ -410,11 +549,12 @@ private fun SetRow(
     /** The weight in [unit]. */
     weight: Double?,
     reps: Int?,
+    rir: Int,
     done: Boolean,
-    /** A weight in [unit]. */
-    onWeight: (Double?) -> Unit,
     /** True when the set has the values that it needs to be marked done. */
     canComplete: Boolean,
+    /** A weight in [unit]. */
+    onWeight: (Double?) -> Unit,
     onReps: (Int?) -> Unit,
     onDone: (Boolean) -> Unit,
 ) {
@@ -426,69 +566,116 @@ private fun SetRow(
     LaunchedEffect(weight) { if (weightText.isEmpty() && weight != null) weightText = Units.format(weight) }
     LaunchedEffect(reps) { if (repsText.isEmpty() && reps != null) repsText = reps.toString() }
 
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, modifier = Modifier.width(52.dp), style = MaterialTheme.typography.labelLarge)
-        if (usesWeight) {
-            OutlinedTextField(
-                value = weightText,
-                onValueChange = { t ->
+    Row(Modifier.fillMaxWidth().heightIn(min = Sizes.setRow), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            label,
+            modifier = Modifier.width(SetCol),
+            style = MaterialTheme.typography.labelLarge,
+            color = if (done) statusColors.done else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            if (usesWeight) {
+                NumberField(
+                    value = weightText,
+                    description = "Weight for set $label in ${unit.label}",
+                    enabled = !done,
+                    keyboardType = KeyboardType.Decimal,
+                ) { t ->
                     val clean = t.replace(',', '.')
-                    // At most 1 decimal.
                     val v = clean.toDoubleOrNull()
                     val max = Units.toUnit(Workflow.MAX_WEIGHT_KG, unit)
+                    // At most 1 decimal.
                     if (clean.isEmpty() || (v != null && v <= max && clean.substringAfter('.', "").length <= 1)) {
                         weightText = clean
-                        onWeight(clean.toDoubleOrNull())
+                        onWeight(v)
                     }
-                },
-                label = { Text(unit.label) },
-                singleLine = true,
-                enabled = !done,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
+                }
+            } else {
+                Text("—", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
-        OutlinedTextField(
-            value = repsText,
-            onValueChange = { t ->
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            NumberField(
+                value = repsText,
+                description = "Reps for set $label",
+                enabled = !done,
+                keyboardType = KeyboardType.Number,
+            ) { t ->
                 if (t.isEmpty() || (t.all(Char::isDigit) && (t.toIntOrNull() ?: Int.MAX_VALUE) <= Workflow.MAX_REPS)) {
                     repsText = t
                     onReps(t.toIntOrNull())
                 }
-            },
-            label = { Text("Reps") },
-            singleLine = true,
-            enabled = !done,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.weight(1f),
+            }
+        }
+        Text(
+            rirText(rir).removePrefix("RIR "),
+            modifier = Modifier.width(RirCol),
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Checkbox(checked = done, onCheckedChange = onDone, enabled = done || canComplete)
+        DoneButton(done = done, enabled = done || canComplete, label = label, onDone = onDone)
     }
 }
 
+/** A compact filled number field: 40 dp high, numbers in the center, in a 48 dp touch area. */
 @Composable
-private fun <T> Prompt(
-    question: String,
-    answer: String?,
-    options: List<T>,
-    selected: T?,
-    label: (T) -> String,
-    onSelect: (T) -> Unit,
-) {
-    var editing by remember { mutableStateOf(false) }
-    if (answer != null && !editing) {
-        // A small chip. Tap it to change the answer.
-        AssistChip(onClick = { editing = true }, label = { Text("✓ $answer") })
-        return
-    }
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-        shape = RoundedCornerShape(16.dp),
+private fun NumberField(value: String, description: String, enabled: Boolean, keyboardType: KeyboardType, onValue: (String) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    BasicTextField(
+        value = value,
+        onValueChange = onValue,
+        enabled = enabled,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(
+            textAlign = TextAlign.Center,
+            fontWeight = FontWeight.Medium,
+            color = if (enabled) colors.onSurface else colors.onSurfaceVariant,
+        ),
+        cursorBrush = SolidColor(colors.primary),
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+        modifier = Modifier
+            .width(Sizes.fieldWidth)
+            .heightIn(min = Sizes.touch)
+            .semantics { contentDescription = description },
+        decorationBox = { inner ->
+            Box(Modifier.heightIn(min = Sizes.touch), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(Sizes.field)
+                        .background(if (enabled) colors.surfaceContainerHighest else colors.surfaceContainerHigh, RoundedCornerShape(Sizes.fieldRadius)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (value.isEmpty()) Text("–", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
+                    inner()
+                }
+            }
+        },
+    )
+}
+
+/** A round done button in a 48 dp touch target. It acts as a checkbox for accessibility. */
+@Composable
+private fun DoneButton(done: Boolean, enabled: Boolean, label: String, onDone: (Boolean) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Box(
+        Modifier
+            .size(Sizes.touch)
+            .toggleable(value = done, enabled = enabled, role = Role.Checkbox, onValueChange = onDone)
+            .semantics { contentDescription = "Set $label done" },
+        contentAlignment = Alignment.Center,
     ) {
-        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(question, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-            Options(options, selected, label) { editing = false; onSelect(it) }
+        Box(
+            Modifier
+                .size(Sizes.doneButton)
+                .then(
+                    if (done) Modifier.background(statusColors.done, CircleShape)
+                    else Modifier.border(2.dp, if (enabled) colors.onSurfaceVariant else colors.outlineVariant, CircleShape),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (done) Text("✓", color = statusColors.onDone, style = MaterialTheme.typography.titleSmall)
         }
     }
 }
@@ -496,17 +683,20 @@ private fun <T> Prompt(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun <T> Options(options: List<T>, selected: T?, label: (T) -> String, onSelect: (T) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
         options.forEach { option ->
             FilterChip(
                 selected = option == selected,
                 onClick = { onSelect(option) },
-                label = { Text(label(option)) },
+                label = { Text(label(option), style = MaterialTheme.typography.labelLarge) },
+                modifier = Modifier.heightIn(min = Sizes.touch),
                 colors = FilterChipDefaults.filterChipColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    labelColor = MaterialTheme.colorScheme.onSurface,
                     selectedContainerColor = MaterialTheme.colorScheme.primary,
                     selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
                 ),
+                border = null,
             )
         }
     }

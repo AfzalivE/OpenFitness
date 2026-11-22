@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -67,8 +68,8 @@ fun OverviewScreen(
         },
     ) { padding ->
         Column(
-            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(Space.l),
+            verticalArrangement = Arrangement.spacedBy(Space.l),
         ) {
             if (block.isComplete) {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
@@ -82,7 +83,7 @@ fun OverviewScreen(
                 CurrentWeekCard(block, onWorkout)
             }
 
-            SectionTitle("Weeks")
+            Text("WEEKS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             WeekGrid(block)
 
             if (!block.isComplete) {
@@ -113,15 +114,27 @@ private fun CurrentWeekCard(block: Block, onWorkout: () -> Unit) {
     val active = block.active
     val nextDay = active?.dayIndex ?: block.nextDayIndex
 
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Week ${week + 1} of ${plan.totalWeeks}", style = MaterialTheme.typography.headlineSmall)
+    Card(
+        shape = RoundedCornerShape(Sizes.cardRadius),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(Sizes.cardPadding), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
             Text(
-                if (deload) "Deload week. Use light effort and fewer sets." else "Target: $rir reps in reserve (RIR $rir).",
-                style = MaterialTheme.typography.bodyLarge,
+                "WEEK ${week + 1} OF ${plan.totalWeeks}",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (deload) statusColors.deload else MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                if (deload) "Deload week" else "Target RIR $rir",
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Text(
+                if (deload) "Use light effort and fewer sets." else "Stop each set with $rir reps in reserve.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (nextDay != null) {
-                Button(onClick = onWorkout, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Button(onClick = onWorkout, modifier = Modifier.fillMaxWidth().padding(top = Space.s).heightIn(min = Sizes.touch)) {
                     Text(if (active != null) "Continue workout: ${plan.days[nextDay].name}" else "Start workout: ${plan.days[nextDay].name}")
                 }
             }
@@ -132,19 +145,23 @@ private fun CurrentWeekCard(block: Block, onWorkout: () -> Unit) {
 @Composable
 private fun WeekGrid(block: Block) {
     val plan = block.plan
-    val cell = 64.dp
+    val cell = Sizes.gridCell
+    val gap = Space.xs
+    val status = statusColors
     var showAll by rememberSaveable { mutableStateOf(false) }
     val lastShown = if (showAll) plan.totalWeeks - 1 else block.currentWeek
     val hidden = plan.totalWeeks - 1 - block.currentWeek
-    Row(Modifier.horizontalScroll(rememberScrollState())) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.width(cell))
+    val labelWidth = 64.dp
+    Card(shape = RoundedCornerShape(Sizes.cardRadius), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+        Column(Modifier.padding(Sizes.cardPadding).horizontalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(gap)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                Box(Modifier.width(labelWidth))
                 plan.days.forEach { day ->
                     Text(
                         day.name,
-                        modifier = Modifier.width(cell),
-                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.width(cell * 1.6f),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                         maxLines = 1,
                     )
@@ -154,47 +171,39 @@ private fun WeekGrid(block: Block) {
                 val isCurrent = w == block.currentWeek
                 val deload = plan.isDeload(w)
                 val rir = RirSchedule.targetRir(w, plan.accumulationWeeks)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.width(cell)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.width(labelWidth), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "Week ${w + 1}",
+                            "W${w + 1}",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isCurrent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            if (deload) "Deload" else "RIR $rir",
+                            if (deload) " DL" else " $rir",
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (deload) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (deload) status.deload else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     plan.days.indices.forEach { d ->
                         val done = block.isDayDone(w, d)
                         val inProgress = block.active?.let { it.week == w && it.dayIndex == d } == true
                         val next = isCurrent && !inProgress && d == block.nextDayIndex && block.active == null
-                        val colors = MaterialTheme.colorScheme
-                        val bg = when {
-                            done -> colors.primary
-                            inProgress || next -> colors.secondaryContainer
-                            deload -> colors.tertiaryContainer.copy(alpha = 0.5f)
-                            else -> colors.surfaceContainerHigh
-                        }
-                        val label = when {
-                            done -> "Done"
-                            inProgress -> "Now"
-                            next -> "Next"
-                            else -> ""
+                        val shape = RoundedCornerShape(6.dp)
+                        val (bg, fg, label) = when {
+                            done -> Triple(status.done, status.onDone, "✓")
+                            inProgress -> Triple(status.current, status.onCurrent, "Now")
+                            next -> Triple(status.current.copy(alpha = 0.18f), status.current, "Next")
+                            deload -> Triple(status.deload.copy(alpha = 0.18f), status.deload, "")
+                            else -> Triple(status.future, MaterialTheme.colorScheme.onSurfaceVariant, "")
                         }
                         Box(
-                            Modifier.size(cell, 40.dp)
-                                .background(bg, RoundedCornerShape(8.dp))
-                                .then(if (isCurrent) Modifier.border(1.dp, colors.outline, RoundedCornerShape(8.dp)) else Modifier),
+                            Modifier.size(cell * 1.6f, cell)
+                                .background(bg, shape)
+                                .then(if (next) Modifier.border(1.dp, status.current, shape) else Modifier),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(
-                                label,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (done) colors.onPrimary else colors.onSecondaryContainer,
-                            )
+                            Text(label, style = MaterialTheme.typography.labelMedium, color = fg)
                         }
                     }
                 }
@@ -213,20 +222,18 @@ private fun WeekGrid(block: Block) {
             TextButton(onClick = { showAll = !showAll }) { Text(if (showAll) "Show fewer weeks" else "Show all weeks") }
         }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Legend(MaterialTheme.colorScheme.primary, "Done")
-        Legend(MaterialTheme.colorScheme.secondaryContainer, "Next")
-        if (lastShown == plan.totalWeeks - 1) {
-            Legend(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f), "Deload")
-        }
+    Row(horizontalArrangement = Arrangement.spacedBy(Space.m), verticalAlignment = Alignment.CenterVertically) {
+        Legend(status.done, "Done")
+        Legend(status.current, "Next")
+        Legend(status.deload, "Deload")
     }
 }
 
 @Composable
 private fun Legend(color: Color, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(12.dp).background(color, RoundedCornerShape(3.dp)))
-        Text(text, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 4.dp))
+        Box(Modifier.size(10.dp).background(color, RoundedCornerShape(3.dp)))
+        Text(text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = Space.xs))
     }
 }
 

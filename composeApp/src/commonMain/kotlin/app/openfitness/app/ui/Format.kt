@@ -21,7 +21,7 @@ fun suggestionText(rx: Prescription, exercise: Exercise, unit: WeightUnit): Stri
         kg != null && reps != null -> "Do ${weightText(kg, exercise, unit)} × $reps"
         reps != null -> "Do $reps reps"
         kg != null -> "Use ${weightText(kg, exercise, unit)}"
-        else -> "No data yet. Choose a weight that gives the target RIR."
+        else -> "Choose a weight for the target RIR"
     }
 }
 
