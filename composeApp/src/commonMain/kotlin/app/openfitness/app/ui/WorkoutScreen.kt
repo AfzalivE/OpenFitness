@@ -262,9 +262,14 @@ private fun GroupCard(
                         done = set.done,
                         onWeight = { v -> onChange { Workflow.updateSet(it, index, r) { e -> e.withWeight(v, unit) } } },
                         onReps = { v -> onChange { Workflow.updateSet(it, index, r) { e -> e.copy(reps = v) } } },
+                        canComplete = Workflow.canComplete(set, exercises[m]),
                         onDone = { d ->
-                            onChange { Workflow.updateSet(it, index, r) { e -> e.copy(done = d) } }
-                            if (d) onSetDone(index, r)
+                            if (d) {
+                                onChange { Workflow.completeSet(it, index, r) }
+                                onSetDone(index, r)
+                            } else {
+                                onChange { Workflow.updateSet(it, index, r) { e -> e.copy(done = false) } }
+                            }
                         },
                     )
                 }
@@ -398,6 +403,8 @@ private fun SetRow(
     done: Boolean,
     /** A weight in [unit]. */
     onWeight: (Double?) -> Unit,
+    /** True when the set has the values that it needs to be marked done. */
+    canComplete: Boolean,
     onReps: (Int?) -> Unit,
     onDone: (Boolean) -> Unit,
 ) {
@@ -405,6 +412,9 @@ private fun SetRow(
     // Keep the text that the user types, so that "72." does not change while they type.
     var weightText by remember(key) { mutableStateOf(weight?.let { Units.format(it) } ?: "") }
     var repsText by remember(key) { mutableStateOf(reps?.toString() ?: "") }
+    // When the app fills an empty field (from the set before), show the value.
+    LaunchedEffect(weight) { if (weightText.isEmpty() && weight != null) weightText = Units.format(weight) }
+    LaunchedEffect(reps) { if (repsText.isEmpty() && reps != null) repsText = reps.toString() }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.width(52.dp), style = MaterialTheme.typography.labelLarge)
@@ -414,7 +424,9 @@ private fun SetRow(
                 onValueChange = { t ->
                     val clean = t.replace(',', '.')
                     // At most 1 decimal.
-                    if (clean.isEmpty() || (clean.toDoubleOrNull() != null && clean.substringAfter('.', "").length <= 1)) {
+                    val v = clean.toDoubleOrNull()
+                    val max = Units.toUnit(Workflow.MAX_WEIGHT_KG, unit)
+                    if (clean.isEmpty() || (v != null && v <= max && clean.substringAfter('.', "").length <= 1)) {
                         weightText = clean
                         onWeight(clean.toDoubleOrNull())
                     }
@@ -430,7 +442,7 @@ private fun SetRow(
         OutlinedTextField(
             value = repsText,
             onValueChange = { t ->
-                if (t.isEmpty() || (t.length <= 3 && t.all(Char::isDigit))) {
+                if (t.isEmpty() || (t.all(Char::isDigit) && (t.toIntOrNull() ?: Int.MAX_VALUE) <= Workflow.MAX_REPS)) {
                     repsText = t
                     onReps(t.toIntOrNull())
                 }
@@ -441,7 +453,7 @@ private fun SetRow(
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.weight(1f),
         )
-        Checkbox(checked = done, onCheckedChange = onDone, enabled = done || reps != null)
+        Checkbox(checked = done, onCheckedChange = onDone, enabled = done || canComplete)
     }
 }
 

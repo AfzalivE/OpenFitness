@@ -306,3 +306,38 @@ class EnteredUnitTest {
         assertEquals(WeightUnit.LB, loaded.settings.unit)
     }
 }
+
+class SetInputTest {
+    private val plan = Templates.upperLower4Day
+    private val bench = ExerciseLibrary.byId.getValue("bb-bench")
+    private val pushUp = ExerciseLibrary.byId.getValue("push-up")
+    private val dip = ExerciseLibrary.byId.getValue("dip")
+
+    @Test fun aSetNeedsRepsAndAWeight() {
+        assertFalse(Workflow.canComplete(SetEntry(), bench))
+        assertFalse(Workflow.canComplete(SetEntry(reps = 8), bench)) // No weight.
+        assertFalse(Workflow.canComplete(SetEntry().withWeight(135.0, WeightUnit.LB).copy(reps = 0), bench)) // 0 reps.
+        assertFalse(Workflow.canComplete(SetEntry(weightKg = 0.0, reps = 8), bench))
+        assertFalse(Workflow.canComplete(SetEntry(weightKg = 5000.0, reps = 8), bench)) // Too heavy.
+        assertFalse(Workflow.canComplete(SetEntry(weightKg = 60.0, reps = 500), bench)) // Too many reps.
+        assertTrue(Workflow.canComplete(SetEntry().withWeight(135.0, WeightUnit.LB).copy(reps = 8), bench))
+        assertTrue(Workflow.canComplete(SetEntry(reps = 20), pushUp)) // Reps only.
+        assertTrue(Workflow.canComplete(SetEntry(reps = 10), dip)) // Bodyweight: no added weight is fine.
+    }
+
+    @Test fun completeSetFillsTheNextEmptySets() {
+        var b = Workflow.startWorkout(Workflow.startBlock(plan, 4)) // Week 1: no suggestions.
+        b = Workflow.updateSet(b, 0, 0) { it.withWeight(135.0, WeightUnit.LB).copy(reps = 10) }
+        b = Workflow.updateSet(b, 0, 2) { it.copy(reps = 6) } // The user typed reps for set 3.
+        b = Workflow.completeSet(b, 0, 0)
+        val sets = b.active!!.exercises[0].sets
+        assertTrue(sets[0].done)
+        assertEquals(135.0, sets[1].weightIn(WeightUnit.LB))
+        assertEquals(10, sets[1].reps)
+        assertFalse(sets[1].done)
+        assertEquals(6, sets[2].reps) // A value that the user typed stays.
+        assertEquals(135.0, sets[2].weightIn(WeightUnit.LB))
+        // Other exercises do not change.
+        assertNull(b.active.exercises[1].sets[0].weightKg)
+    }
+}

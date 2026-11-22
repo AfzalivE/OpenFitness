@@ -60,12 +60,16 @@ fun App(store: AppStore) {
             composable<Routes.Start> {
                 StartBlockScreen(
                     customPlans = data.customPlans,
+                    draft = data.draft,
+                    onContinueDraft = { nav.navigate(Routes.Planner) },
+                    onDeleteDraft = { store.update { it.copy(draft = null) } },
                     onStart = ::startBlock,
                     onNewPlan = {
                         store.update { it.copy(draft = Planner.newPlan()) }
                         nav.navigate(Routes.Planner)
                     },
                     onEditPlan = { plan, isTemplate ->
+                        // This replaces a draft that was not saved. The Start screen shows the draft, so the user knows.
                         store.update { it.copy(draft = if (isTemplate) Planner.fromTemplate(plan) else plan) }
                         nav.navigate(Routes.Planner)
                     },

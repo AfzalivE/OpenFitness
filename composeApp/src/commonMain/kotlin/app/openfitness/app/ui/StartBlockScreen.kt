@@ -43,6 +43,9 @@ import app.openfitness.core.model.MesocyclePlan
 @Composable
 fun StartBlockScreen(
     customPlans: List<MesocyclePlan>,
+    draft: MesocyclePlan?,
+    onContinueDraft: () -> Unit,
+    onDeleteDraft: () -> Unit,
     onStart: (MesocyclePlan, Int) -> Unit,
     onNewPlan: () -> Unit,
     onEditPlan: (plan: MesocyclePlan, isTemplate: Boolean) -> Unit,
@@ -74,6 +77,20 @@ fun StartBlockScreen(
                 style = MaterialTheme.typography.bodyLarge,
             )
 
+            if (draft != null) {
+                // A plan that the user did not save yet. It stays when the app closes.
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                        Text("Plan not saved: ${draft.name.ifBlank { "No name" }}", style = MaterialTheme.typography.titleMedium)
+                        Text("You did not save this plan yet.", style = MaterialTheme.typography.bodyMedium)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = onDeleteDraft) { Text("Delete") }
+                            TextButton(onClick = onContinueDraft) { Text("Continue") }
+                        }
+                    }
+                }
+            }
+
             SectionTitle("1. Select a plan")
             if (customPlans.isNotEmpty()) {
                 Text("My plans", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -90,7 +107,9 @@ fun StartBlockScreen(
                     TextButton(onClick = { onEditPlan(plan, true) }) { Text("Copy and edit") }
                 }
             }
-            OutlinedButton(onClick = onNewPlan, modifier = Modifier.fillMaxWidth()) { Text("Make a new plan") }
+            if (draft == null) {
+                OutlinedButton(onClick = onNewPlan, modifier = Modifier.fillMaxWidth()) { Text("Make a new plan") }
+            }
 
             SectionTitle("2. Set the number of hard weeks")
             Stepper(

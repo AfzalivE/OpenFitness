@@ -4,6 +4,7 @@ import app.openfitness.core.library.ExerciseLibrary
 import app.openfitness.core.model.Exercise
 import app.openfitness.core.model.ExerciseResult
 import app.openfitness.core.model.JointPain
+import app.openfitness.core.model.LoadType
 import app.openfitness.core.model.LoggedSet
 import app.openfitness.core.model.MesocyclePlan
 import app.openfitness.core.model.Muscle
@@ -78,6 +79,49 @@ object Workflow {
                 e.copy(sets = e.sets.mapIndexed { i, s -> if (i == setIndex) change(s) else s })
             }
         }
+
+    /** The heaviest weight that the app accepts, in kg (about 2200 lb). */
+    const val MAX_WEIGHT_KG = 1000.0
+    const val MAX_REPS = 100
+
+    /**
+     * True when the user can mark this set done: it has at least 1 rep, and a
+     * weight if the exercise uses one. Bodyweight-plus exercises can have no
+     * added weight.
+     */
+    fun canComplete(set: SetEntry, exercise: Exercise): Boolean {
+        val reps = set.reps ?: return false
+        if (reps !in 1..MAX_REPS) return false
+        val w = set.weightKg
+        return when (exercise.loadType) {
+            LoadType.FIXED_STEP -> w != null && w > 0 && w <= MAX_WEIGHT_KG
+            LoadType.BODYWEIGHT_PLUS -> w == null || w in 0.0..MAX_WEIGHT_KG
+            LoadType.REPS_ONLY -> true
+        }
+    }
+
+    /**
+     * Marks a set done. The next sets of the exercise that have no weight or
+     * no reps get the values of this set, so that the user does not type them
+     * again.
+     */
+    fun completeSet(block: Block, exerciseIndex: Int, setIndex: Int): Block = block.updateActive { w ->
+        w.updateExercise(exerciseIndex) { e ->
+            val done = e.sets[setIndex].copy(done = true)
+            e.copy(sets = e.sets.mapIndexed { i, s ->
+                when {
+                    i == setIndex -> done
+                    i > setIndex && !s.done -> s.copy(
+                        weightKg = s.weightKg ?: done.weightKg,
+                        enteredValue = if (s.weightKg == null) done.enteredValue else s.enteredValue,
+                        enteredUnit = if (s.weightKg == null) done.enteredUnit else s.enteredUnit,
+                        reps = s.reps ?: done.reps,
+                    )
+                    else -> s
+                }
+            })
+        }
+    }
 
     /** Adds a set to an exercise in this workout. It copies the weight and reps of the last set. */
     fun addSet(block: Block, exerciseIndex: Int): Block = block.updateActive { w ->

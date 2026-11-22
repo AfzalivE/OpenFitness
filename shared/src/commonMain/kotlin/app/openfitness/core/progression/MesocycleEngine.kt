@@ -42,7 +42,10 @@ class MesocycleEngine(
             if (free.isNotEmpty()) {
                 val rest = range(muscle).startSets - fixed.sumOf { sets.getValue(it.dayIndex to it.slotIndex) }
                 val weekly = rest.coerceAtLeast(MIN_SETS_PER_SLOT * free.size)
-                distribute(weekly, free.size).forEachIndexed { i, n -> sets[free[i].dayIndex to free[i].slotIndex] = n }
+                // One slot never gets more than MAX_SETS_PER_SLOT, also when a muscle has few slots.
+                distribute(weekly, free.size).forEachIndexed { i, n ->
+                    sets[free[i].dayIndex to free[i].slotIndex] = n.coerceAtMost(MAX_SETS_PER_SLOT)
+                }
             }
         }
         val rir = RirSchedule.targetRir(0, plan.accumulationWeeks)

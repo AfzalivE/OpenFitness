@@ -297,3 +297,16 @@ class UnitsTest {
         assertEquals(176.0, app.openfitness.core.units.Units.displayLogged(set.weightKg, set.enteredValue, set.enteredUnit, app.openfitness.core.units.WeightUnit.LB))
     }
 }
+
+class SlotCapTest {
+    @Test fun firstWeekNeverGivesMoreThanTheSlotMaximum() {
+        // Back starts at 10 sets. With one back slot, that slot gets the maximum, not 10.
+        val plan = MesocyclePlan(
+            "One slot",
+            listOf(TrainingDay("Day 1", listOf(ExerciseSlot("cable-row", Muscle.BACK))), TrainingDay("Day 2", listOf(ExerciseSlot("bb-squat", Muscle.QUADS)))),
+        )
+        val week0 = MesocycleEngine(plan, ExerciseLibrary.byId).firstWeek()
+        assertEquals(MesocycleEngine.MAX_SETS_PER_SLOT, week0[0][0].sets)
+        assertTrue(week0.flatten().all { it.sets <= MesocycleEngine.MAX_SETS_PER_SLOT })
+    }
+}
