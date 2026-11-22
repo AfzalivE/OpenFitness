@@ -6,11 +6,9 @@ import app.openfitness.core.model.ExerciseSlot
 import app.openfitness.core.model.MesocyclePlan
 import app.openfitness.core.model.Muscle
 import app.openfitness.core.model.TrainingDay
-import app.openfitness.core.model.VolumeRange
 import app.openfitness.core.model.linkWithNext
 import app.openfitness.core.model.normalized
 import app.openfitness.core.model.split
-import app.openfitness.core.progression.MesocycleEngine
 
 /**
  * Pure functions to make and change a plan in the planner.
@@ -19,7 +17,6 @@ import app.openfitness.core.progression.MesocycleEngine
 object Planner {
     const val MIN_DAYS = 2
     const val MAX_DAYS = 6
-    const val MAX_START_SETS = MesocycleEngine.MAX_SETS_PER_SLOT
 
     /** A new, empty plan with [days] days. */
     fun newPlan(name: String = "My plan", days: Int = 3, hardWeeks: Int = 4): MesocyclePlan {
@@ -71,49 +68,15 @@ object Planner {
         }
     }
 
-    /** Sets the start sets of one exercise. Null gives the split from the muscle's start sets. */
-    fun setSlotStartSets(plan: MesocyclePlan, day: Int, slot: Int, sets: Int?) = updateDay(plan, day) { d ->
-        d.copy(slots = d.slots.mapIndexed { i, s -> if (i == slot) s.copy(startSets = sets?.coerceIn(1, MAX_START_SETS)) else s })
-    }
-
     fun linkWithNext(plan: MesocyclePlan, day: Int, slot: Int) = updateDay(plan, day) { it.linkWithNext(slot) }
 
     fun splitSuperset(plan: MesocyclePlan, day: Int, slot: Int) = updateDay(plan, day) { it.split(slot) }
-
-    fun volume(plan: MesocyclePlan, muscle: Muscle): VolumeRange = plan.volume[muscle] ?: VolumeRange(4, 16)
-
-    /** Sets the weekly start sets of a muscle. The max goes up if it is lower. */
-    fun setMuscleStartSets(plan: MesocyclePlan, muscle: Muscle, sets: Int): MesocyclePlan {
-        val v = volume(plan, muscle)
-        val start = sets.coerceIn(0, 40)
-        return plan.copy(volume = plan.volume + (muscle to VolumeRange(start, maxOf(v.maxSets, start))))
-    }
-
-    /** Sets the weekly max sets of a muscle. The start goes down if it is higher. */
-    fun setMuscleMaxSets(plan: MesocyclePlan, muscle: Muscle, sets: Int): MesocyclePlan {
-        val v = volume(plan, muscle)
-        val max = sets.coerceIn(1, 40)
-        return plan.copy(volume = plan.volume + (muscle to VolumeRange(minOf(v.startSets, max), max)))
-    }
 
     /** Muscles that the plan trains, in the order of [Muscle]. */
     fun musclesInPlan(plan: MesocyclePlan): List<Muscle> {
         val used = plan.days.flatMap { d -> d.slots.map { it.muscle } }.toSet()
         return Muscle.entries.filter { it in used }
     }
-
-    /** The weekly sets for each muscle in the first week of this plan. */
-    fun startSetsPerMuscle(plan: MesocyclePlan, exercises: Map<String, Exercise> = ExerciseLibrary.byId): Map<Muscle, Int> {
-        val week = MesocycleEngine(plan, exercises).firstWeek()
-        val result = linkedMapOf<Muscle, Int>()
-        musclesInPlan(plan).forEach { result[it] = 0 }
-        week.forEachIndexed { d, day -> day.forEachIndexed { s, rx -> val m = plan.days[d].slots[s].muscle; result[m] = result.getValue(m) + rx.sets } }
-        return result
-    }
-
-    /** The sets of each slot in the first week, by day and slot. */
-    fun startSetsPerSlot(plan: MesocyclePlan, exercises: Map<String, Exercise> = ExerciseLibrary.byId): List<List<Int>> =
-        MesocycleEngine(plan, exercises).firstWeek().map { day -> day.map { it.sets } }
 
     /** Problems that stop the user from saving or starting the plan. Empty when the plan is good. */
     fun problems(plan: MesocyclePlan): List<String> = buildList {

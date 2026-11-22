@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -59,6 +60,11 @@ fun StartBlockScreen(
         ?: customPlans.lastOrNull()
         ?: Templates.all.first()
     var hardWeeks by remember(selected.name) { mutableIntStateOf(selected.accumulationWeeks) }
+    // A plan to edit, when the user must first say yes to replacing the unsaved plan.
+    var pendingEdit by remember { mutableStateOf<Pair<MesocyclePlan, Boolean>?>(null) }
+    val edit: (MesocyclePlan, Boolean) -> Unit = { plan, isTemplate ->
+        if (draft != null) pendingEdit = plan to isTemplate else onEditPlan(plan, isTemplate)
+    }
 
     Scaffold(
         topBar = {
@@ -96,7 +102,7 @@ fun StartBlockScreen(
                 Text("My plans", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 customPlans.forEach { plan ->
                     PlanCard(plan, plan.name == selected.name, { selectedName = plan.name }) {
-                        TextButton(onClick = { onEditPlan(plan, false) }) { Text("Edit") }
+                        TextButton(onClick = { edit(plan, false) }) { Text("Edit") }
                         TextButton(onClick = { onDeletePlan(plan) }) { Text("Delete") }
                     }
                 }
@@ -104,7 +110,7 @@ fun StartBlockScreen(
             }
             Templates.all.forEach { plan ->
                 PlanCard(plan, plan.name == selected.name, { selectedName = plan.name }) {
-                    TextButton(onClick = { onEditPlan(plan, true) }) { Text("Copy and edit") }
+                    TextButton(onClick = { edit(plan, true) }) { Text("Copy and edit") }
                 }
             }
             if (draft == null) {
@@ -127,6 +133,25 @@ fun StartBlockScreen(
             Button(onClick = { onStart(selected, hardWeeks) }, modifier = Modifier.fillMaxWidth()) { Text("Start block") }
         }
     }
+
+    pendingEdit?.let { (plan, isTemplate) ->
+        ReplaceDraftDialog(
+            draftName = draft?.name?.ifBlank { "No name" } ?: "",
+            onReplace = { pendingEdit = null; onEditPlan(plan, isTemplate) },
+            onCancel = { pendingEdit = null },
+        )
+    }
+}
+
+@Composable
+private fun ReplaceDraftDialog(draftName: String, onReplace: () -> Unit, onCancel: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Replace the plan that is not saved?") },
+        text = { Text("You did not save \"$draftName\". If you continue, the app deletes it.") },
+        confirmButton = { TextButton(onClick = onReplace) { Text("Replace") } },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+    )
 }
 
 @Composable

@@ -19,7 +19,7 @@ OpenFitness is a hypertrophy training app for Android and iOS. It is built with 
 - `shared`: Domain model and progression logic. Pure Kotlin, no platform code. Targets: JVM (for tests), Android, iOS.
 - `composeApp`: The app UI and workflow, with Compose Multiplatform and Material 3. It is shared by Android and iOS.
   - `data/Workflow.kt`: Start a block, start and finish a workout, add or remove sets, supersets, roll over to the next week, swap an exercise.
-  - `data/Planner.kt`: Make and change a plan: days, exercises, order, supersets, start sets, weekly volume, saved plans.
+  - `data/Planner.kt`: Make and change a plan: days, exercises, order, supersets, saved plans.
   - `data/AppStore.kt`: Keeps all app data in one JSON file on the device.
   - `ui/`: The screens: start a block, planner, block overview, workout, exercise library, settings.
 - `androidApp`: The Android application (`app.openfitness`). It shows the `composeApp` UI.
@@ -35,15 +35,17 @@ A screen recording of the full flow is in [docs/screenshots/android-walkthrough.
 
 ## How the progression works
 
-1. **Week 0.** Each muscle starts at its start volume. Each exercise gets at least 2 sets.
+1. **Week 1.** Each exercise starts at 2 sets (`ProgressionConfig.startSetsPerExercise`). In the first workout, use "− Set" and "+ Set" to do more or fewer sets. The next week starts from the sets that you logged.
 2. **Sets.** After each session, the feedback for each muscle gives a set change:
    - Still sore, or the work was too much: remove 1 set.
    - Recovered on time and the work was not easy: keep the sets.
    - Fast recovery, low pump, or easy work: add 1 or 2 sets.
-   - The weekly total for a muscle does not go above its maximum.
+   - The weekly total for a muscle does not go above its maximum (`DefaultVolume`). One exercise has 1 to 8 sets in a session.
 3. **Load.** Double progression. Add reps until the top of the rep range, then add one load step.
 4. **Joint pain.** Moderate or severe joint pain lowers the weight by about 10%.
 5. **Deload.** Half the sets, half the reps, same weight.
+
+All these values are in `ProgressionConfig` in the `shared` module. `MesocycleEngine` takes a config; the app uses the default one.
 
 ## Build and run
 

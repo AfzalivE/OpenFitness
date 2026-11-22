@@ -17,8 +17,6 @@ data class LoadTarget(val weightKg: Double?, val targetReps: Int?, val note: Str
  * load go down.
  */
 object LoadProgression {
-    private const val PAIN_LOAD_FACTOR = 0.9
-
     fun next(
         exercise: Exercise,
         lastSets: List<LoggedSet>,
@@ -26,18 +24,20 @@ object LoadProgression {
         nextRir: Int,
         jointPain: JointPain,
         deload: Boolean,
+        config: ProgressionConfig = ProgressionConfig.Default,
     ): LoadTarget {
         val top = lastSets.firstOrNull() ?: return LoadTarget(null, null)
         val usesWeight = exercise.loadType != LoadType.REPS_ONLY
         val weight = if (usesWeight) top.weightKg else null
 
         if (deload) {
-            return LoadTarget(weight, ceil(top.reps / 2.0).toInt(), "Deload: easy sets, half the reps.")
+            val reps = ceil(top.reps * config.deloadRepFactor).toInt().coerceAtLeast(1)
+            return LoadTarget(weight, reps, "Deload: easy sets, fewer reps.")
         }
 
         when (jointPain) {
             JointPain.MODERATE, JointPain.SEVERE -> {
-                val lighter = weight?.let { roundToStep(it * PAIN_LOAD_FACTOR, exercise.loadStepKg) }
+                val lighter = weight?.let { roundToStep(it * config.jointPainLoadFactor, exercise.loadStepKg) }
                 val note = if (jointPain == JointPain.SEVERE) {
                     "Joint pain was severe. Use less weight or change to a different exercise."
                 } else {

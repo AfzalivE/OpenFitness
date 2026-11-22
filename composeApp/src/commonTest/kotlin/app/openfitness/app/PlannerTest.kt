@@ -91,26 +91,13 @@ class PlannerTest {
         assertEquals("Day 1", Templates.fullBody3Day.days[0].name) // The template does not change.
     }
 
-    @Test fun startSetsPerMuscleFollowTheVolumeSettings() {
-        var p = twoDayPlan()
-        assertEquals(8, Planner.startSetsPerMuscle(p)[Muscle.CHEST])
-        p = Planner.setMuscleStartSets(p, Muscle.CHEST, 6)
-        assertEquals(6, Planner.startSetsPerMuscle(p)[Muscle.CHEST])
-        p = Planner.setMuscleMaxSets(p, Muscle.CHEST, 4) // Start goes down with the max.
-        assertEquals(4, Planner.volume(p, Muscle.CHEST).startSets)
-        assertEquals(4, Planner.volume(p, Muscle.CHEST).maxSets)
-        p = Planner.setMuscleStartSets(p, Muscle.CHEST, 10) // Max goes up with the start.
-        assertEquals(10, Planner.volume(p, Muscle.CHEST).maxSets)
-        assertEquals(listOf(Muscle.CHEST, Muscle.BACK, Muscle.SIDE_DELTS, Muscle.QUADS), Planner.musclesInPlan(p))
+    @Test fun musclesInPlanFollowThePlanOrder() {
+        assertEquals(listOf(Muscle.CHEST, Muscle.BACK, Muscle.SIDE_DELTS, Muscle.QUADS), Planner.musclesInPlan(twoDayPlan()))
     }
 
-    @Test fun startSetsPerExercise() {
-        var p = Planner.setSlotStartSets(twoDayPlan(), 0, 0, 3)
-        assertEquals(3, Planner.startSetsPerSlot(p)[0][0])
-        assertEquals(3, Planner.startSetsPerMuscle(p)[Muscle.CHEST])
-        p = Planner.setSlotStartSets(p, 0, 0, null)
-        assertNull(p.days[0].slots[0].startSets)
-        assertEquals(8, Planner.startSetsPerSlot(p)[0][0])
+    @Test fun weekOneGivesEachExerciseTheEngineStartSets() {
+        val b = Workflow.startBlock(twoDayPlan(), 4)
+        assertTrue(b.weeks[0].flatten().all { it.sets == app.openfitness.core.progression.ProgressionConfig.Default.startSetsPerExercise })
     }
 
     @Test fun supersetsInThePlanner() {
@@ -139,7 +126,7 @@ class PlannerTest {
         val path = "/openfitness.json".toPath()
         val store = AppStore(JsonFileStore(fs, path))
         assertEquals(WeightUnit.LB, store.state.value.settings.unit) // lb is the default.
-        val plan = Planner.linkWithNext(Planner.setSlotStartSets(twoDayPlan(), 0, 1, 4), 0, 0)
+        val plan = Planner.linkWithNext(twoDayPlan(), 0, 0)
         store.update { Planner.save(it, plan).copy(settings = Settings(WeightUnit.KG), draft = plan) }
         val loaded = JsonFileStore(fs, path).load()
         assertEquals(plan, loaded.customPlans.single())
@@ -216,6 +203,7 @@ class WorkoutSetsTest {
 
     @Test fun supersetRoundWithUnevenSets() {
         var b = Workflow.startWorkout(Workflow.linkWithNext(Workflow.startBlock(plan, 4), 0, 0))
+        b = Workflow.addSet(b, 1) // Row gets one more set than bench.
         // Bench has fewer sets than row: in the last round, only row has a set.
         val bench = b.active!!.exercises[0].sets.size
         val row = b.active.exercises[1].sets.size
@@ -327,6 +315,7 @@ class SetInputTest {
 
     @Test fun completeSetFillsTheNextEmptySets() {
         var b = Workflow.startWorkout(Workflow.startBlock(plan, 4)) // Week 1: no suggestions.
+        b = Workflow.addSet(b, 0) // 3 sets.
         b = Workflow.updateSet(b, 0, 0) { it.withWeight(135.0, WeightUnit.LB).copy(reps = 10) }
         b = Workflow.updateSet(b, 0, 2) { it.copy(reps = 6) } // The user typed reps for set 3.
         b = Workflow.completeSet(b, 0, 0)

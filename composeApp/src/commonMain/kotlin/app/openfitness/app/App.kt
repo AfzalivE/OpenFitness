@@ -4,7 +4,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -48,6 +51,13 @@ fun App(store: AppStore) {
         val data by store.state.collectAsState()
         val nav = rememberNavController()
         val start: Any = remember { if (store.state.value.block != null) Routes.Overview else Routes.Start }
+        // After the app starts with a workout in progress, go to that workout.
+        // The overview stays under it, so Back goes to the overview. Saved, so a rotation does not do it again.
+        var openedWorkout by rememberSaveable { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            if (!openedWorkout && store.state.value.block?.active != null) nav.navigate(Routes.Workout)
+            openedWorkout = true
+        }
         val unit = data.settings.unit
         val exercises = remember(unit) { Units.exercisesFor(unit, ExerciseLibrary.all) }
 

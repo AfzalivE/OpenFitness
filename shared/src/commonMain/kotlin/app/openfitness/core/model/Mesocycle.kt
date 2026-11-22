@@ -8,7 +8,10 @@ import kotlinx.serialization.Serializable
 data class ExerciseSlot(
     val exerciseId: String,
     val muscle: Muscle,
-    /** Sets in the first week. Null means the engine splits the muscle's start sets. */
+    /**
+     * Not used. Old saved plans can have a value here; the engine ignores it,
+     * because week 1 always uses ProgressionConfig.startSetsPerExercise.
+     */
     val startSets: Int? = null,
     /**
      * Slots next to each other with the same group are a superset.

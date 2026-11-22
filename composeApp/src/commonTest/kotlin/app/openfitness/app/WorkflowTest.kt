@@ -54,7 +54,7 @@ class WorkflowTest {
         assertEquals(0, block.nextDayIndex)
         assertNull(block.active)
         assertTrue(block.weeks[0].flatten().all { it.targetRir == RirSchedule.START_RIR })
-        assertEquals(8, block.weeklySets(0)[Muscle.CHEST])
+        assertEquals(4, block.weeklySets(0)[Muscle.CHEST]) // 2 chest exercises × 2 sets.
     }
 
     @Test fun startBlockRejectsBadWeekCounts() {

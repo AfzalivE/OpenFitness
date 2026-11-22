@@ -16,7 +16,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
@@ -29,11 +28,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.openfitness.app.data.Planner
 import app.openfitness.app.data.Workflow
@@ -57,7 +54,6 @@ fun PlannerScreen(
     onBack: () -> Unit,
 ) {
     val problems = Planner.problems(plan)
-    val slotSets = Planner.startSetsPerSlot(plan)
 
     Scaffold(
         topBar = {
@@ -122,7 +118,6 @@ fun PlannerScreen(
                                             day = d,
                                             slot = s,
                                             letter = if (group.size > 1) ('A' + group.indexOf(s)).toString() else null,
-                                            weekOneSets = slotSets.getOrNull(d)?.getOrNull(s),
                                             onChange = onChange,
                                         )
                                     }
@@ -138,8 +133,6 @@ fun PlannerScreen(
                     }
                 }
             }
-
-            MuscleVolumeCard(plan, onChange)
 
             if (problems.isNotEmpty()) {
                 problems.forEach { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
@@ -160,7 +153,6 @@ private fun SlotRow(
     day: Int,
     slot: Int,
     letter: String?,
-    weekOneSets: Int?,
     onChange: ((MesocyclePlan) -> MesocyclePlan) -> Unit,
 ) {
     val d = plan.days[day]
@@ -173,25 +165,11 @@ private fun SlotRow(
         Row(Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text((letter?.let { "$it  " } ?: "") + ex.name, style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "${s.muscle.displayName} · ${weekOneSets ?: "-"} sets in week 1" + if (s.startSets != null) " (set by you)" else "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text(s.muscle.displayName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text(if (open) "▴" else "▾", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (open) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Start sets", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                if (s.startSets == null) {
-                    Text("Auto", style = MaterialTheme.typography.bodyMedium)
-                    TextButton(onClick = { onChange { Planner.setSlotStartSets(it, day, slot, weekOneSets ?: 2) } }) { Text("Change") }
-                } else {
-                    Stepper(s.startSets!!, { n -> onChange { Planner.setSlotStartSets(it, day, slot, n) } }, 1, Planner.MAX_START_SETS)
-                    TextButton(onClick = { onChange { Planner.setSlotStartSets(it, day, slot, null) } }) { Text("Auto") }
-                }
-            }
             FlowRow {
                 TextButton(onClick = { onChange { Planner.moveExercise(it, day, slot, -1) } }, enabled = slot > 0) { Text("Move up") }
                 TextButton(onClick = { onChange { Planner.moveExercise(it, day, slot, 1) } }, enabled = slot < last) { Text("Move down") }
@@ -200,51 +178,6 @@ private fun SlotRow(
                 }
                 TextButton(onClick = { onChange { Planner.removeExercise(it, day, slot) } }) {
                     Text("Remove", color = MaterialTheme.colorScheme.error)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MuscleVolumeCard(plan: MesocyclePlan, onChange: ((MesocyclePlan) -> MesocyclePlan) -> Unit) {
-    val muscles = Planner.musclesInPlan(plan)
-    if (muscles.isEmpty()) return
-    val weekOne = Planner.startSetsPerMuscle(plan)
-    var open by rememberSaveable { mutableStateOf(false) }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(Modifier.fillMaxWidth().clickable { open = !open }, verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    SectionTitle("Weekly sets for each muscle")
-                    Text(
-                        "Week 1: ${weekOne.values.sum()} sets for ${weekOne.size} muscles",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Text(if (open) "▴" else "▾", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (!open) return@Column
-            Text(
-                "Week 1 shows the sets that this plan gives. Start is the target for week 1. Max is the highest weekly sets that the app will give.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            muscles.forEach { m ->
-                val v = Planner.volume(plan, m)
-                HorizontalDivider()
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(m.displayName, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                    Text("Week 1: ${weekOne[m] ?: 0} sets", fontWeight = FontWeight.SemiBold)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Start", modifier = Modifier.weight(1f))
-                    Stepper(v.startSets, { n -> onChange { Planner.setMuscleStartSets(it, m, n) } }, 0, 40)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Max", modifier = Modifier.weight(1f))
-                    Stepper(v.maxSets, { n -> onChange { Planner.setMuscleMaxSets(it, m, n) } }, 1, 40)
                 }
             }
         }

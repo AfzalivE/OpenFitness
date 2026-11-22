@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,6 +66,14 @@ import app.openfitness.core.units.WeightUnit
 import kotlinx.coroutines.delay
 
 private const val DEFAULT_REST_SECONDS = 120
+
+/** Saves the open or closed state of the cards as text, for example "0:1,3:0". */
+private val ToggleSaver = Saver<Map<Int, Boolean>, String>(
+    save = { m -> m.entries.joinToString(",") { "${it.key}:${if (it.value) 1 else 0}" } },
+    restore = { t ->
+        t.split(',').filter { it.contains(':') }.associate { e -> e.substringBefore(':').toInt() to (e.substringAfter(':') == "1") }
+    },
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -126,7 +135,8 @@ fun WorkoutScreen(
         // Its group and the groups before it are open. The next groups are closed.
         // A tap on a card header opens or closes that card.
         val current = workout.exercises.indexOfFirst { !it.allSetsDone }.let { if (it < 0) workout.exercises.lastIndex else it }
-        var toggled by remember { mutableStateOf(mapOf<Int, Boolean>()) }
+        // Saved, so that open and closed cards stay the same after a rotation.
+        var toggled by rememberSaveable(stateSaver = ToggleSaver) { mutableStateOf(mapOf<Int, Boolean>()) }
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),

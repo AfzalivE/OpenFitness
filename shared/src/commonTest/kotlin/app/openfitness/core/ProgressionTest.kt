@@ -93,11 +93,11 @@ class MesocycleEngineTest {
         feedback = if (fb == null) emptyMap() else plan.days[day].slots.associate { it.muscle to fb },
     )
 
-    @Test fun firstWeekMeetsStartVolume() {
+    @Test fun firstWeekGivesEachExerciseTwoSets() {
         val week0 = engine.firstWeek()
+        assertTrue(week0.flatten().all { it.sets == 2 && it.targetRir == 3 })
         val chest = week0.flatten().filter { ExerciseLibrary.byId.getValue(it.exerciseId).primary == Muscle.CHEST }.sumOf { it.sets }
-        assertEquals(8, chest)
-        assertTrue(week0.flatten().all { it.sets >= MesocycleEngine.MIN_SETS_PER_SLOT && it.targetRir == 3 })
+        assertEquals(4, chest) // 2 chest exercises.
     }
 
     @Test fun goodFeedbackGrowsVolumeButNotPastTheCap() {
@@ -110,7 +110,7 @@ class MesocycleEngineTest {
         }
         assertEquals(chestTotals.sorted(), chestTotals)
         assertTrue(chestTotals.all { it <= plan.volume.getValue(Muscle.CHEST).maxSets })
-        assertTrue(chestTotals.last() > 8)
+        assertTrue(chestTotals.last() > 4)
     }
 
     @Test fun poorRecoveryCutsVolume() {
@@ -161,8 +161,8 @@ class SetsDoneTest {
 
     @Test fun fewerSetsDoneMeansFewerSetsNextWeek() {
         val rx0 = engine.firstWeek()
-        val rx1 = engine.nextWeek(1, records(rx0) { p -> if (p.exerciseId == "bb-bench") 2 else p.sets })
-        assertEquals(2, rx1[0].first { it.exerciseId == "bb-bench" }.sets)
+        val rx1 = engine.nextWeek(1, records(rx0) { p -> if (p.exerciseId == "bb-bench") 1 else p.sets })
+        assertEquals(1, rx1[0].first { it.exerciseId == "bb-bench" }.sets)
     }
 
     @Test fun noLoggedSetsUsesThePrescription() {
@@ -173,14 +173,42 @@ class SetsDoneTest {
 }
 
 class StartSetsTest {
-    @Test fun slotStartSetsOverrideTheSplit() {
-        val base = Templates.upperLower4Day
-        val days = base.days.toMutableList()
-        days[0] = days[0].copy(slots = days[0].slots.mapIndexed { i, s -> if (i == 0) s.copy(startSets = 3) else s })
-        val week0 = MesocycleEngine(base.copy(days = days), ExerciseLibrary.byId).firstWeek()
-        assertEquals(3, week0[0][0].sets) // Bench: its own start sets.
-        // Incline press gets the rest of the chest start sets (8 - 3), at least 2.
-        assertEquals(5, week0[2].first { it.exerciseId == "db-incline" }.sets)
+    private val base = Templates.upperLower4Day
+
+    @Test fun oldSlotStartSetsAreIgnored() {
+        // A plan that was saved with start sets on a slot still loads, and week 1 uses the engine value.
+        val json = kotlinx.serialization.json.Json.encodeToString(MesocyclePlan.serializer(), base)
+            .replaceFirst("\"muscle\":\"CHEST\"", "\"muscle\":\"CHEST\",\"startSets\":5")
+        val old = kotlinx.serialization.json.Json.decodeFromString(MesocyclePlan.serializer(), json)
+        assertEquals(5, old.days[0].slots[0].startSets)
+        val week0 = MesocycleEngine(old, ExerciseLibrary.byId).firstWeek()
+        assertEquals(2, week0[0][0].sets)
+    }
+
+    @Test fun aConfigChangeChangesWeekOne() {
+        val config = ProgressionConfig(startSetsPerExercise = 3, startRir = 4)
+        val week0 = MesocycleEngine(base, ExerciseLibrary.byId, config).firstWeek()
+        assertTrue(week0.flatten().all { it.sets == 3 && it.targetRir == 4 })
+    }
+
+    @Test fun deloadUsesTheConfigFactors() {
+        val config = ProgressionConfig(deloadSetFactor = 1.0, deloadRepFactor = 1.0, deloadRir = 4)
+        val plan = base.copy(accumulationWeeks = 3)
+        val engine = MesocycleEngine(plan, ExerciseLibrary.byId, config)
+        var rx = engine.firstWeek()
+        for (week in 1..3) {
+            rx = engine.nextWeek(week, rx.mapIndexed { d, r ->
+                SessionRecord(week - 1, d, r, r.map { p -> ExerciseResult(p.exerciseId, List(p.sets) { LoggedSet(50.0, 8) }) })
+            })
+        }
+        // Deload week: no cut in sets or reps with these factors, and its own RIR.
+        assertTrue(rx.flatten().all { it.targetRir == 4 })
+        assertTrue(rx.flatten().filter { it.targetReps != null }.all { it.targetReps == 8 })
+    }
+
+    @Test fun badConfigIsRejected() {
+        assertFailsWith<IllegalArgumentException> { ProgressionConfig(startSetsPerExercise = 0) }
+        assertFailsWith<IllegalArgumentException> { ProgressionConfig(startSetsPerExercise = 9, maxSetsPerExercise = 8) }
     }
 }
 
@@ -299,14 +327,18 @@ class UnitsTest {
 }
 
 class SlotCapTest {
-    @Test fun firstWeekNeverGivesMoreThanTheSlotMaximum() {
-        // Back starts at 10 sets. With one back slot, that slot gets the maximum, not 10.
+    @Test fun nextWeekNeverGoesAboveTheSlotMaximum() {
         val plan = MesocyclePlan(
             "One slot",
             listOf(TrainingDay("Day 1", listOf(ExerciseSlot("cable-row", Muscle.BACK))), TrainingDay("Day 2", listOf(ExerciseSlot("bb-squat", Muscle.QUADS)))),
         )
-        val week0 = MesocycleEngine(plan, ExerciseLibrary.byId).firstWeek()
-        assertEquals(MesocycleEngine.MAX_SETS_PER_SLOT, week0[0][0].sets)
-        assertTrue(week0.flatten().all { it.sets <= MesocycleEngine.MAX_SETS_PER_SLOT })
+        val engine = MesocycleEngine(plan, ExerciseLibrary.byId, ProgressionConfig(startSetsPerExercise = 8))
+        val rx0 = engine.firstWeek()
+        val fb = MuscleFeedback(Soreness.NONE, Pump.LOW, Workload.EASY) // Adds sets.
+        val rx1 = engine.nextWeek(1, rx0.mapIndexed { d, r ->
+            SessionRecord(0, d, r, r.map { p -> ExerciseResult(p.exerciseId, List(p.sets) { LoggedSet(50.0, 8) }) }, plan.days[d].slots.associate { it.muscle to fb })
+        })
+        assertEquals(MesocycleEngine.MAX_SETS_PER_SLOT, rx1[0][0].sets)
+        assertEquals(8, rx1[1][0].sets) // Already at the maximum.
     }
 }

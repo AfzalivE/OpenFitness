@@ -23,7 +23,9 @@ enum class Muscle(val displayName: String) {
 /**
  * Weekly set range for one muscle.
  *
- * [startSets] is the weekly volume in the first week of a block.
+ * [startSets] is not used by the engine since week 1 gives each exercise
+ * [app.openfitness.core.progression.ProgressionConfig.startSetsPerExercise] sets.
+ * It stays in the model so that saved data still loads.
  * [maxSets] is the highest weekly volume that the app will program.
  */
 @Serializable
