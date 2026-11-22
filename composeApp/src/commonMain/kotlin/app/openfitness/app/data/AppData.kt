@@ -24,7 +24,12 @@ data class AppData(
 @Serializable
 data class Settings(
     val unit: WeightUnit = WeightUnit.LB,
+    val theme: ThemeMode = ThemeMode.DARK,
 )
+
+/** The color theme. Dark is the default. */
+@Serializable
+enum class ThemeMode { DARK, LIGHT, SYSTEM }
 
 /** One value that the user enters for a set. Null means "not entered yet". */
 @Serializable

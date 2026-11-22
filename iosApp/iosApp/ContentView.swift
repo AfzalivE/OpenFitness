@@ -13,6 +13,7 @@ struct ComposeView: UIViewControllerRepresentable {
 
 struct ContentView: View {
     var body: some View {
-        ComposeView().ignoresSafeArea()
+        // The app is dark by default, so the status bar uses light content.
+        ComposeView().ignoresSafeArea().preferredColorScheme(.dark)
     }
 }

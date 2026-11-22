@@ -47,8 +47,8 @@ object Routes {
 
 @Composable
 fun App(store: AppStore) {
-    OpenFitnessTheme {
-        val data by store.state.collectAsState()
+    val data by store.state.collectAsState()
+    OpenFitnessTheme(data.settings.theme) {
         val nav = rememberNavController()
         val start: Any = remember { if (store.state.value.block != null) Routes.Overview else Routes.Start }
         // After the app starts with a workout in progress, go to that workout.
@@ -110,6 +110,7 @@ fun App(store: AppStore) {
                 SettingsScreen(
                     settings = data.settings,
                     onUnit = { u -> store.update { it.copy(settings = it.settings.copy(unit = u)) } },
+                    onTheme = { t -> store.update { it.copy(settings = it.settings.copy(theme = t)) } },
                     onBack = { nav.popBackStack() },
                 )
             }

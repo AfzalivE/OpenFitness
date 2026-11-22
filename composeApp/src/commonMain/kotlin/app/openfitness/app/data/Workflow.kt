@@ -207,6 +207,49 @@ object Workflow {
     fun asksJointPain(block: Block, exerciseIndex: Int): Boolean =
         block.active?.exercises?.getOrNull(exerciseIndex)?.allSetsDone == true
 
+    /** The kinds of feedback questions. */
+    enum class QuestionKind { SORENESS, JOINT_PAIN, PUMP, WORKLOAD }
+
+    /** One feedback question for an exercise of the active workout. */
+    data class Question(val kind: QuestionKind, val exerciseIndex: Int, val muscle: Muscle)
+
+    /**
+     * The questions that the app asks now, in workout order. Soreness comes
+     * at the first exercise of a muscle (not in week 1), once that exercise is
+     * the current one or before it. Joint pain comes after the last set of the
+     * exercise. Pump and workload come after all the sets for the muscle.
+     */
+    fun questions(block: Block): List<Question> {
+        val w = block.active ?: return emptyList()
+        val current = w.exercises.indexOfFirst { !it.allSetsDone }.let { if (it < 0) w.exercises.size else it }
+        return buildList {
+            w.exercises.forEachIndexed { i, e ->
+                val m = muscleOf(block, e)
+                if (asksSoreness(block, i) && i <= current) add(Question(QuestionKind.SORENESS, i, m))
+                if (asksJointPain(block, i)) add(Question(QuestionKind.JOINT_PAIN, i, m))
+                if (asksPumpAndWorkload(block, i)) {
+                    add(Question(QuestionKind.PUMP, i, m))
+                    add(Question(QuestionKind.WORKLOAD, i, m))
+                }
+            }
+        }
+    }
+
+    fun isAnswered(block: Block, q: Question): Boolean {
+        val w = block.active ?: return false
+        val fb = w.feedback[q.muscle]
+        return when (q.kind) {
+            QuestionKind.SORENESS -> fb?.soreness != null
+            QuestionKind.JOINT_PAIN -> w.exercises[q.exerciseIndex].jointPain != null
+            QuestionKind.PUMP -> fb?.pump != null
+            QuestionKind.WORKLOAD -> fb?.workload != null
+        }
+    }
+
+    /** The first question that has no answer, or null. */
+    fun nextQuestion(block: Block, skipped: Set<Question> = emptySet()): Question? =
+        questions(block).firstOrNull { it !in skipped && !isAnswered(block, it) }
+
     /**
      * True when all the sets of the exercise are done and all the questions
      * that the app asks at this exercise have an answer.

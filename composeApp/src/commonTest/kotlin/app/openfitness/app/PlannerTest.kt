@@ -330,3 +330,44 @@ class SetInputTest {
         assertNull(b.active.exercises[1].sets[0].weightKg)
     }
 }
+
+class QuestionTest {
+    private val plan = Templates.upperLower4Day
+    private fun allDone(b0: app.openfitness.app.data.Block, i: Int): app.openfitness.app.data.Block {
+        var b = b0
+        b.active!!.exercises[i].sets.indices.forEach { s -> b = Workflow.updateSet(b, i, s) { it.copy(weightKg = 50.0, reps = 8, done = true) } }
+        return b
+    }
+
+    @Test fun noQuestionsAtTheStartOfWeekOne() {
+        val b = Workflow.startWorkout(Workflow.startBlock(plan, 4))
+        assertNull(Workflow.nextQuestion(b))
+    }
+
+    @Test fun questionsComeAfterTheirTriggerInOrder() {
+        var b = Workflow.startWorkout(Workflow.startBlock(plan, 4))
+        b = allDone(b, 0) // Bench, the only chest exercise on Upper A.
+        val q = Workflow.questions(b).map { it.kind }
+        assertEquals(listOf(Workflow.QuestionKind.JOINT_PAIN, Workflow.QuestionKind.PUMP, Workflow.QuestionKind.WORKLOAD), q)
+        assertEquals(Workflow.QuestionKind.JOINT_PAIN, Workflow.nextQuestion(b)!!.kind)
+        b = Workflow.setJointPain(b, 0, app.openfitness.core.model.JointPain.NONE)
+        assertEquals(Workflow.QuestionKind.PUMP, Workflow.nextQuestion(b)!!.kind)
+        // A skipped question waits; the next one comes.
+        assertEquals(Workflow.QuestionKind.WORKLOAD, Workflow.nextQuestion(b, setOf(Workflow.nextQuestion(b)!!))!!.kind)
+    }
+
+    @Test fun sorenessComesForTheCurrentExerciseInWeekTwo() {
+        var b = Workflow.startBlock(plan, 4)
+        repeat(plan.days.size) {
+            b = Workflow.startWorkout(b)
+            b.active!!.exercises.indices.forEach { i -> b = allDone(b, i) }
+            b = Workflow.finishWorkout(b)
+        }
+        b = Workflow.startWorkout(b)
+        val q = Workflow.questions(b)
+        assertEquals(listOf(Workflow.QuestionKind.SORENESS), q.map { it.kind }) // Only the current exercise.
+        assertEquals(Muscle.CHEST, q.single().muscle)
+        b = allDone(b, 0)
+        assertEquals(Muscle.BACK, Workflow.questions(b).last { it.kind == Workflow.QuestionKind.SORENESS }.muscle)
+    }
+}
