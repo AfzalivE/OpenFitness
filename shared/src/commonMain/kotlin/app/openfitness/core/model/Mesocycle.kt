@@ -1,5 +1,6 @@
 package app.openfitness.core.model
 
+import app.openfitness.core.units.WeightUnit
 import kotlinx.serialization.Serializable
 
 /** Planned exercise in a training day. The set count changes each week. */
@@ -7,6 +8,16 @@ import kotlinx.serialization.Serializable
 data class ExerciseSlot(
     val exerciseId: String,
     val muscle: Muscle,
+    /**
+     * Not used. Old saved plans can have a value here; the engine ignores it,
+     * because week 1 always uses ProgressionConfig.startSetsPerExercise.
+     */
+    val startSets: Int? = null,
+    /**
+     * Slots next to each other with the same group are a superset.
+     * Null means a single exercise. See [TrainingDay.groups].
+     */
+    val supersetGroup: Int? = null,
 )
 
 @Serializable
@@ -42,6 +53,10 @@ data class LoggedSet(
     val reps: Int,
     /** Reps in reserve that the user reports, if any. */
     val rir: Int? = null,
+    /** The weight as the user entered it, in [enteredUnit]. Null in old data. */
+    val enteredValue: Double? = null,
+    /** The unit that the user entered the weight in. Null in old data, which is kg. */
+    val enteredUnit: WeightUnit? = null,
 )
 
 /** The result of one exercise in one session. */

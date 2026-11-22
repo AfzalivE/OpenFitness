@@ -93,11 +93,11 @@ class MesocycleEngineTest {
         feedback = if (fb == null) emptyMap() else plan.days[day].slots.associate { it.muscle to fb },
     )
 
-    @Test fun firstWeekMeetsStartVolume() {
+    @Test fun firstWeekGivesEachExerciseTwoSets() {
         val week0 = engine.firstWeek()
+        assertTrue(week0.flatten().all { it.sets == 2 && it.targetRir == 3 })
         val chest = week0.flatten().filter { ExerciseLibrary.byId.getValue(it.exerciseId).primary == Muscle.CHEST }.sumOf { it.sets }
-        assertEquals(8, chest)
-        assertTrue(week0.flatten().all { it.sets >= MesocycleEngine.MIN_SETS_PER_SLOT && it.targetRir == 3 })
+        assertEquals(4, chest) // 2 chest exercises.
     }
 
     @Test fun goodFeedbackGrowsVolumeButNotPastTheCap() {
@@ -110,7 +110,7 @@ class MesocycleEngineTest {
         }
         assertEquals(chestTotals.sorted(), chestTotals)
         assertTrue(chestTotals.all { it <= plan.volume.getValue(Muscle.CHEST).maxSets })
-        assertTrue(chestTotals.last() > 8)
+        assertTrue(chestTotals.last() > 4)
     }
 
     @Test fun poorRecoveryCutsVolume() {
@@ -138,5 +138,207 @@ class MesocycleEngineTest {
 
     @Test fun allTemplatesUseKnownExercises() {
         Templates.all.forEach { MesocycleEngine(it, ExerciseLibrary.byId).firstWeek() }
+    }
+}
+
+class SetsDoneTest {
+    private val plan = Templates.upperLower4Day
+    private val engine = MesocycleEngine(plan, ExerciseLibrary.byId)
+
+    private fun records(rx: List<List<Prescription>>, setsFor: (Prescription) -> Int) = rx.mapIndexed { d, day ->
+        SessionRecord(0, d, day, day.map { p -> ExerciseResult(p.exerciseId, List(setsFor(p)) { LoggedSet(50.0, 8) }) },
+            plan.days[d].slots.associate { it.muscle to MuscleFeedback(Soreness.RECOVERED_ON_TIME, Pump.MODERATE, Workload.GOOD) })
+    }
+
+    @Test fun nextWeekStartsFromTheSetsDone() {
+        val rx0 = engine.firstWeek()
+        // Feedback that holds the sets. The user did one more set of bench than prescribed.
+        val rx1 = engine.nextWeek(1, records(rx0) { p -> if (p.exerciseId == "bb-bench") p.sets + 1 else p.sets })
+        val bench0 = rx0[0].first { it.exerciseId == "bb-bench" }.sets
+        assertEquals(bench0 + 1, rx1[0].first { it.exerciseId == "bb-bench" }.sets)
+        assertEquals(rx0[0].first { it.exerciseId == "cable-row" }.sets, rx1[0].first { it.exerciseId == "cable-row" }.sets)
+    }
+
+    @Test fun fewerSetsDoneMeansFewerSetsNextWeek() {
+        val rx0 = engine.firstWeek()
+        val rx1 = engine.nextWeek(1, records(rx0) { p -> if (p.exerciseId == "bb-bench") 1 else p.sets })
+        assertEquals(1, rx1[0].first { it.exerciseId == "bb-bench" }.sets)
+    }
+
+    @Test fun noLoggedSetsUsesThePrescription() {
+        val rx0 = engine.firstWeek()
+        val rx1 = engine.nextWeek(1, records(rx0) { 0 })
+        assertEquals(rx0.flatten().map { it.sets }, rx1.flatten().map { it.sets })
+    }
+}
+
+class StartSetsTest {
+    private val base = Templates.upperLower4Day
+
+    @Test fun oldSlotStartSetsAreIgnored() {
+        // A plan that was saved with start sets on a slot still loads, and week 1 uses the engine value.
+        val json = kotlinx.serialization.json.Json.encodeToString(MesocyclePlan.serializer(), base)
+            .replaceFirst("\"muscle\":\"CHEST\"", "\"muscle\":\"CHEST\",\"startSets\":5")
+        val old = kotlinx.serialization.json.Json.decodeFromString(MesocyclePlan.serializer(), json)
+        assertEquals(5, old.days[0].slots[0].startSets)
+        val week0 = MesocycleEngine(old, ExerciseLibrary.byId).firstWeek()
+        assertEquals(2, week0[0][0].sets)
+    }
+
+    @Test fun aConfigChangeChangesWeekOne() {
+        val config = ProgressionConfig(startSetsPerExercise = 3, startRir = 4)
+        val week0 = MesocycleEngine(base, ExerciseLibrary.byId, config).firstWeek()
+        assertTrue(week0.flatten().all { it.sets == 3 && it.targetRir == 4 })
+    }
+
+    @Test fun deloadUsesTheConfigFactors() {
+        val config = ProgressionConfig(deloadSetFactor = 1.0, deloadRepFactor = 1.0, deloadRir = 4)
+        val plan = base.copy(accumulationWeeks = 3)
+        val engine = MesocycleEngine(plan, ExerciseLibrary.byId, config)
+        var rx = engine.firstWeek()
+        for (week in 1..3) {
+            rx = engine.nextWeek(week, rx.mapIndexed { d, r ->
+                SessionRecord(week - 1, d, r, r.map { p -> ExerciseResult(p.exerciseId, List(p.sets) { LoggedSet(50.0, 8) }) })
+            })
+        }
+        // Deload week: no cut in sets or reps with these factors, and its own RIR.
+        assertTrue(rx.flatten().all { it.targetRir == 4 })
+        assertTrue(rx.flatten().filter { it.targetReps != null }.all { it.targetReps == 8 })
+    }
+
+    @Test fun badConfigIsRejected() {
+        assertFailsWith<IllegalArgumentException> { ProgressionConfig(startSetsPerExercise = 0) }
+        assertFailsWith<IllegalArgumentException> { ProgressionConfig(startSetsPerExercise = 9, maxSetsPerExercise = 8) }
+    }
+}
+
+class SupersetTest {
+    private val day = TrainingDay("Day", listOf("bb-bench", "cable-row", "db-lateral", "pushdown").map { ExerciseSlot(it, ExerciseLibrary.byId.getValue(it).primary) })
+
+    @Test fun singlesAreOwnGroups() {
+        assertEquals(listOf(listOf(0), listOf(1), listOf(2), listOf(3)), day.groups())
+    }
+
+    @Test fun linkAndSplit() {
+        val linked = day.linkWithNext(0)
+        assertEquals(listOf(listOf(0, 1), listOf(2), listOf(3)), linked.groups())
+        assertTrue(linked.isInSuperset(1))
+        val three = linked.linkWithNext(1)
+        assertEquals(listOf(listOf(0, 1, 2), listOf(3)), three.groups())
+        val split = three.split(2)
+        assertEquals(day.groups(), split.groups())
+        assertTrue(split.slots.all { it.supersetGroup == null })
+    }
+
+    @Test fun twoSupersetsStaySeparate() {
+        val d = day.linkWithNext(0).linkWithNext(2)
+        assertEquals(listOf(listOf(0, 1), listOf(2, 3)), d.groups())
+        assertEquals(listOf(1, 1, 2, 2), d.slots.map { it.supersetGroup })
+    }
+
+    @Test fun normalizeFixesGroupsAfterAMove() {
+        // Superset 0+1, then slot 1 moves to the end: the old group is no longer next to each other.
+        val linked = day.linkWithNext(0)
+        val moved = linked.copy(slots = listOf(linked.slots[0], linked.slots[2], linked.slots[3], linked.slots[1])).normalized()
+        assertEquals(listOf(listOf(0), listOf(1), listOf(2), listOf(3)), moved.groups())
+        assertTrue(moved.slots.all { it.supersetGroup == null })
+    }
+
+    @Test fun supersetSurvivesSerialization() {
+        val plan = Templates.upperLower4Day.let { it.copy(days = listOf(it.days[0].linkWithNext(0)) + it.days.drop(1)) }
+        val json = kotlinx.serialization.json.Json.encodeToString(MesocyclePlan.serializer(), plan)
+        assertEquals(plan, kotlinx.serialization.json.Json.decodeFromString(MesocyclePlan.serializer(), json))
+    }
+}
+
+class UnitsTest {
+    private val bench = ExerciseLibrary.byId.getValue("bb-bench")
+    private val lateral = ExerciseLibrary.byId.getValue("db-lateral")
+    private val incline = ExerciseLibrary.byId.getValue("db-incline")
+
+    @Test fun convertsBothWays() {
+        assertEquals(220.462, app.openfitness.core.units.Units.toUnit(100.0, app.openfitness.core.units.WeightUnit.LB), 0.001)
+        assertEquals(100.0, app.openfitness.core.units.Units.toKg(220.46226218, app.openfitness.core.units.WeightUnit.LB), 1e-6)
+        assertEquals(80.0, app.openfitness.core.units.Units.toUnit(80.0, app.openfitness.core.units.WeightUnit.KG))
+    }
+
+    @Test fun lbStepsFollowTheEquipment() {
+        val u = app.openfitness.core.units.Units
+        val lb = app.openfitness.core.units.WeightUnit.LB
+        assertEquals(5.0, u.loadStep(bench, lb))
+        assertEquals(5.0, u.loadStep(incline, lb))
+        assertEquals(2.5, u.loadStep(lateral, lb))
+        assertEquals(2.5, u.loadStep(bench, app.openfitness.core.units.WeightUnit.KG))
+    }
+
+    @Test fun displayRoundsToTheStep() {
+        val u = app.openfitness.core.units.Units
+        val lb = app.openfitness.core.units.WeightUnit.LB
+        val kg = app.openfitness.core.units.WeightUnit.KG
+        assertEquals(185.0, u.display(u.toKg(185.0, lb), bench, lb)) // On a lb step: exact.
+        assertEquals(84.0, u.display(u.toKg(185.0, lb), bench, kg)) // 83.9 kg: to the nearest 0.5 kg.
+        assertEquals(182.0, u.display(82.5, bench, lb)) // 181.9 lb: to the nearest 1 lb.
+        assertEquals(20.0, u.display(9.0, lateral, lb)) // 19.8 lb
+        assertEquals(82.5, u.display(82.5, bench, kg))
+    }
+
+    @Test fun lbProgressionStaysOnLbSteps() {
+        val u = app.openfitness.core.units.Units
+        val lb = app.openfitness.core.units.WeightUnit.LB
+        val benchLb = u.exercisesFor(lb, ExerciseLibrary.all).getValue("bb-bench")
+        val start = u.toKg(185.0, lb)
+        val t = LoadProgression.next(benchLb, listOf(LoggedSet(start, 10)), 2, 1, JointPain.NONE, deload = false)
+        assertEquals(190.0, u.toUnit(t.weightKg!!, lb), 1e-9)
+        val pain = LoadProgression.next(benchLb, listOf(LoggedSet(start, 8)), 2, 1, JointPain.MODERATE, deload = false)
+        assertEquals(165.0, u.toUnit(pain.weightKg!!, lb), 1e-9) // 185 × 0.9 = 166.5 → 165
+    }
+
+    @Test fun formatHasNoTrailingZeros() {
+        val u = app.openfitness.core.units.Units
+        assertEquals("80", u.format(80.0))
+        assertEquals("82.5", u.format(82.5))
+        assertEquals("1.3", u.format(1.25)) // Never more than 1 decimal.
+        assertEquals("83.9", u.format(83.91459))
+    }
+
+    @Test fun loggedWeightShowsExactlyInTheUnitItWasEnteredIn() {
+        val u = app.openfitness.core.units.Units
+        val lb = app.openfitness.core.units.WeightUnit.LB
+        val kg = app.openfitness.core.units.WeightUnit.KG
+        // Entered as 185 lb.
+        val kg185 = u.toKg(185.0, lb)
+        assertEquals(185.0, u.displayLogged(kg185, 185.0, lb, lb))
+        assertEquals(84.0, u.displayLogged(kg185, 185.0, lb, kg))
+        // Entered as 82.5 kg.
+        assertEquals(82.5, u.displayLogged(82.5, 82.5, kg, kg))
+        assertEquals(182.0, u.displayLogged(82.5, 82.5, kg, lb))
+        // Old data: no entered unit, so it is kg.
+        assertEquals(82.5, u.displayLogged(82.5, null, null, kg))
+        assertEquals(182.0, u.displayLogged(82.5, null, null, lb))
+    }
+
+    @Test fun oldLoggedSetsLoadAsKg() {
+        val json = """{"weightKg":80.0,"reps":8}"""
+        val set = kotlinx.serialization.json.Json.decodeFromString(LoggedSet.serializer(), json)
+        assertEquals(LoggedSet(80.0, 8), set)
+        assertNull(set.enteredUnit)
+        assertEquals(176.0, app.openfitness.core.units.Units.displayLogged(set.weightKg, set.enteredValue, set.enteredUnit, app.openfitness.core.units.WeightUnit.LB))
+    }
+}
+
+class SlotCapTest {
+    @Test fun nextWeekNeverGoesAboveTheSlotMaximum() {
+        val plan = MesocyclePlan(
+            "One slot",
+            listOf(TrainingDay("Day 1", listOf(ExerciseSlot("cable-row", Muscle.BACK))), TrainingDay("Day 2", listOf(ExerciseSlot("bb-squat", Muscle.QUADS)))),
+        )
+        val engine = MesocycleEngine(plan, ExerciseLibrary.byId, ProgressionConfig(startSetsPerExercise = 8))
+        val rx0 = engine.firstWeek()
+        val fb = MuscleFeedback(Soreness.NONE, Pump.LOW, Workload.EASY) // Adds sets.
+        val rx1 = engine.nextWeek(1, rx0.mapIndexed { d, r ->
+            SessionRecord(0, d, r, r.map { p -> ExerciseResult(p.exerciseId, List(p.sets) { LoggedSet(50.0, 8) }) }, plan.days[d].slots.associate { it.muscle to fb })
+        })
+        assertEquals(MesocycleEngine.MAX_SETS_PER_SLOT, rx1[0][0].sets)
+        assertEquals(8, rx1[1][0].sets) // Already at the maximum.
     }
 }

@@ -3,28 +3,24 @@ package app.openfitness.app.ui
 import app.openfitness.core.model.Exercise
 import app.openfitness.core.model.Prescription
 import app.openfitness.core.progression.RirSchedule
-import kotlin.math.roundToInt
+import app.openfitness.core.units.Units
+import app.openfitness.core.units.WeightUnit
 
-/** Formats a weight without a trailing ".0". */
-fun formatKg(kg: Double): String {
-    val tenths = (kg * 100).roundToInt()
-    return if (tenths % 100 == 0) "${tenths / 100}" else {
-        val s = (tenths / 100.0).toString()
-        s.trimEnd('0').trimEnd('.')
-    }
-}
+/** A weight in kg, shown in [unit] and rounded to the load step of [exercise]. */
+fun weightText(kg: Double, exercise: Exercise, unit: WeightUnit): String =
+    "${Units.format(Units.display(kg, exercise, unit))} ${unit.label}"
 
 fun rirText(rir: Int): String = if (rir >= RirSchedule.DELOAD_RIR) "Easy" else "RIR $rir"
 
 fun repRangeText(exercise: Exercise): String = "${exercise.repRange.first}–${exercise.repRange.last} reps"
 
-fun suggestionText(rx: Prescription): String {
+fun suggestionText(rx: Prescription, exercise: Exercise, unit: WeightUnit): String {
     val reps = rx.targetReps
     val kg = rx.weightKg
     return when {
-        kg != null && reps != null -> "Do ${formatKg(kg)} kg × $reps"
+        kg != null && reps != null -> "Do ${weightText(kg, exercise, unit)} × $reps"
         reps != null -> "Do $reps reps"
-        kg != null -> "Use ${formatKg(kg)} kg"
+        kg != null -> "Use ${weightText(kg, exercise, unit)}"
         else -> "No data yet. Choose a weight that gives the target RIR."
     }
 }
