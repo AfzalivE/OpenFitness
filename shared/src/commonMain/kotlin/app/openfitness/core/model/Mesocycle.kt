@@ -1,5 +1,6 @@
 package app.openfitness.core.model
 
+import app.openfitness.core.units.WeightUnit
 import kotlinx.serialization.Serializable
 
 /** Planned exercise in a training day. The set count changes each week. */
@@ -49,6 +50,10 @@ data class LoggedSet(
     val reps: Int,
     /** Reps in reserve that the user reports, if any. */
     val rir: Int? = null,
+    /** The weight as the user entered it, in [enteredUnit]. Null in old data. */
+    val enteredValue: Double? = null,
+    /** The unit that the user entered the weight in. Null in old data, which is kg. */
+    val enteredUnit: WeightUnit? = null,
 )
 
 /** The result of one exercise in one session. */

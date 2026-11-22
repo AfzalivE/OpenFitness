@@ -238,6 +238,71 @@ class WorkoutSetsTest {
         }
         b = Workflow.startWorkout(b, lb, ex)
         val kg = b.active!!.exercises[0].sets[0].weightKg!!
-        assertEquals(180.0, Units.toUnit(kg, lb), 1e-9)
+        // 82.5 kg is 181.9 lb, not on a 5 lb step: it shows as 182 lb.
+        assertEquals(182.0, b.active.exercises[0].sets[0].enteredValue)
+        assertEquals(182.0, Units.toUnit(kg, lb), 1e-9)
+    }
+}
+
+class EnteredUnitTest {
+    private val plan = Templates.upperLower4Day
+    private val lb = WeightUnit.LB
+    private val kg = WeightUnit.KG
+
+    @Test fun lbEntryShowsInKg() {
+        val set = SetEntry().withWeight(185.0, lb)
+        assertEquals(185.0, set.weightIn(lb))
+        assertEquals(84.0, set.weightIn(kg))
+        assertEquals(Units.toKg(185.0, lb), set.weightKg)
+    }
+
+    @Test fun kgEntryShowsInLb() {
+        val set = SetEntry().withWeight(82.5, kg)
+        assertEquals(82.5, set.weightIn(kg))
+        assertEquals(182.0, set.weightIn(lb))
+    }
+
+    @Test fun unitSwitchesDoNotChangeStoredValues() {
+        val fs = FakeFileSystem()
+        val path = "/openfitness.json".toPath()
+        val store = AppStore(JsonFileStore(fs, path))
+        store.update { it.copy(block = Workflow.startWorkout(Workflow.startBlock(plan, 4))) }
+        store.updateBlock { Workflow.updateSet(it, 0, 0) { s -> s.withWeight(185.0, lb).copy(reps = 8, done = true) } }
+        val before = store.state.value.block!!.active!!.exercises[0].sets[0]
+        repeat(5) {
+            store.update { it.copy(settings = Settings(kg)) }
+            assertEquals(84.0, store.state.value.block!!.active!!.exercises[0].sets[0].weightIn(kg))
+            store.update { it.copy(settings = Settings(lb)) }
+            assertEquals(185.0, store.state.value.block!!.active!!.exercises[0].sets[0].weightIn(lb))
+        }
+        val after = JsonFileStore(fs, path).load().block!!.active!!.exercises[0].sets[0]
+        assertEquals(before, after)
+        // The logged set keeps the entered value and unit.
+        store.updateBlock { Workflow.finishWorkout(it) }
+        val logged = store.state.value.block!!.sessions.single().results[0].sets.single()
+        assertEquals(185.0, logged.enteredValue)
+        assertEquals(lb, logged.enteredUnit)
+        assertEquals(185.0, Units.displayLogged(logged.weightKg, logged.enteredValue, logged.enteredUnit, lb))
+    }
+
+    @Test fun oldDataWithoutUnitsLoadsAsKg() {
+        val fs = FakeFileSystem()
+        val path = "/openfitness.json".toPath()
+        // Make data, then remove the new fields, like a file from an older version.
+        val store = AppStore(JsonFileStore(fs, path))
+        store.update { it.copy(block = Workflow.startWorkout(Workflow.startBlock(plan, 4))) }
+        store.updateBlock { Workflow.updateSet(it, 0, 0) { s -> s.copy(weightKg = 80.0, reps = 8, done = true) } }
+        val old = fs.read(path) { readUtf8() }
+            .replace(Regex(""","enteredValue":[^,}]*"""), "")
+            .replace(Regex(""","enteredUnit":[^,}]*"""), "")
+            .replace(Regex(""","settings":\{[^}]*\}"""), "")
+        check("enteredUnit" !in old && "settings" !in old)
+        fs.write(path) { writeUtf8(old) }
+        val loaded = JsonFileStore(fs, path).load()
+        val set = loaded.block!!.active!!.exercises[0].sets[0]
+        assertNull(set.enteredUnit)
+        assertEquals(80.0, set.weightIn(kg))
+        assertEquals(176.0, set.weightIn(lb))
+        assertEquals(WeightUnit.LB, loaded.settings.unit)
     }
 }

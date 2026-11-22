@@ -39,9 +39,40 @@ object Units {
     fun roundToStep(value: Double, step: Double): Double =
         if (step <= 0) value else (value / step).roundToInt() * step
 
-    /** The weight in [unit], rounded to the load step of [exercise]. */
-    fun display(kg: Double, exercise: Exercise, unit: WeightUnit): Double =
-        roundToStep(toUnit(kg, unit), loadStep(exercise, unit))
+    /**
+     * Rounds a weight that came from the other unit: kg to the nearest
+     * 0.5 kg, lb to the nearest 1 lb.
+     */
+    fun roundConverted(value: Double, unit: WeightUnit): Double = when (unit) {
+        WeightUnit.KG -> (value * 2).roundToInt() / 2.0
+        WeightUnit.LB -> value.roundToInt().toDouble()
+    }
+
+    /**
+     * A weight in kg, shown in [unit]. If it is on a load step of [exercise]
+     * in [unit], it shows exactly (for example 185 lb). Else it came from the
+     * other unit, and it is rounded with [roundConverted] (185 lb shows 84 kg).
+     */
+    fun display(kg: Double, exercise: Exercise, unit: WeightUnit): Double {
+        val value = toUnit(kg, unit)
+        val onStep = roundToStep(value, loadStep(exercise, unit))
+        return if (kotlin.math.abs(onStep - value) < 0.01) onStep else roundConverted(value, unit)
+    }
+
+    /**
+     * A logged weight, shown in [unit]. When the user entered it in [unit],
+     * it shows the exact value that they entered. Else it is converted and
+     * rounded with [roundConverted]. A weight with no entered unit is old
+     * data, which was entered in kg.
+     */
+    fun displayLogged(kg: Double, enteredValue: Double?, enteredUnit: WeightUnit?, unit: WeightUnit): Double {
+        val fromUnit = enteredUnit ?: WeightUnit.KG
+        return when {
+            fromUnit == unit && enteredValue != null -> enteredValue
+            fromUnit == unit -> toUnit(kg, unit)
+            else -> roundConverted(toUnit(kg, unit), unit)
+        }
+    }
 
     /**
      * The exercises with a load step in kg that matches the load step in
@@ -51,15 +82,12 @@ object Units {
     fun exercisesFor(unit: WeightUnit, exercises: Collection<Exercise>): Map<String, Exercise> =
         exercises.associate { it.id to it.copy(loadStepKg = toKg(loadStep(it, unit), unit)) }
 
-    /** Formats a weight with up to 2 decimals and no trailing zeros. */
+    /** Formats a weight with at most 1 decimal and no trailing zero. */
     fun format(value: Double): String {
-        val hundredths = (value * 100).roundToInt()
-        val whole = hundredths / 100
-        val frac = kotlin.math.abs(hundredths % 100)
-        return when {
-            frac == 0 -> "$whole"
-            frac % 10 == 0 -> "$whole.${frac / 10}"
-            else -> "$whole.${frac.toString().padStart(2, '0')}"
-        }
+        val tenths = (value * 10).roundToInt()
+        val whole = tenths / 10
+        val frac = kotlin.math.abs(tenths % 10)
+        val sign = if (tenths < 0 && whole == 0) "-" else ""
+        return if (frac == 0) "$sign$whole" else "$sign$whole.$frac"
     }
 }

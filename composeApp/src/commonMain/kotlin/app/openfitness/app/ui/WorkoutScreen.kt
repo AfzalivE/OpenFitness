@@ -257,10 +257,10 @@ private fun GroupCard(
                         key = "${entries[m].exerciseId}-$r-$unit",
                         exercise = exercises[m],
                         unit = unit,
-                        weightKg = set.weightKg,
+                        weight = set.weightIn(unit),
                         reps = set.reps,
                         done = set.done,
-                        onWeight = { kg -> onChange { Workflow.updateSet(it, index, r) { e -> e.copy(weightKg = kg) } } },
+                        onWeight = { v -> onChange { Workflow.updateSet(it, index, r) { e -> e.withWeight(v, unit) } } },
                         onReps = { v -> onChange { Workflow.updateSet(it, index, r) { e -> e.copy(reps = v) } } },
                         onDone = { d ->
                             onChange { Workflow.updateSet(it, index, r) { e -> e.copy(done = d) } }
@@ -392,16 +392,18 @@ private fun SetRow(
     key: String,
     exercise: Exercise,
     unit: WeightUnit,
-    weightKg: Double?,
+    /** The weight in [unit]. */
+    weight: Double?,
     reps: Int?,
     done: Boolean,
+    /** A weight in [unit]. */
     onWeight: (Double?) -> Unit,
     onReps: (Int?) -> Unit,
     onDone: (Boolean) -> Unit,
 ) {
     val usesWeight = exercise.loadType != LoadType.REPS_ONLY
     // Keep the text that the user types, so that "72." does not change while they type.
-    var weightText by remember(key) { mutableStateOf(weightKg?.let { Units.format(Units.toUnit(it, unit)) } ?: "") }
+    var weightText by remember(key) { mutableStateOf(weight?.let { Units.format(it) } ?: "") }
     var repsText by remember(key) { mutableStateOf(reps?.toString() ?: "") }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -411,9 +413,10 @@ private fun SetRow(
                 value = weightText,
                 onValueChange = { t ->
                     val clean = t.replace(',', '.')
-                    if (clean.isEmpty() || clean.toDoubleOrNull() != null) {
+                    // At most 1 decimal.
+                    if (clean.isEmpty() || (clean.toDoubleOrNull() != null && clean.substringAfter('.', "").length <= 1)) {
                         weightText = clean
-                        onWeight(clean.toDoubleOrNull()?.let { Units.toKg(it, unit) })
+                        onWeight(clean.toDoubleOrNull())
                     }
                 },
                 label = { Text(unit.label) },

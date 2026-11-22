@@ -57,8 +57,9 @@ object Workflow {
                 slotIndex = slot,
                 exerciseId = rx.exerciseId,
                 sets = List(rx.sets) {
-                    val kg = rx.weightKg?.let { w -> Units.toKg(Units.display(w, exercises.getValue(rx.exerciseId), unit), unit) }
-                    SetEntry(weightKg = kg, reps = rx.targetReps)
+                    // The field shows the suggestion as the user sees it, in their unit.
+                    val shown = rx.weightKg?.let { w -> Units.display(w, exercises.getValue(rx.exerciseId), unit) }
+                    SetEntry(reps = rx.targetReps).withWeight(shown, unit)
                 },
             )
         }
@@ -190,7 +191,9 @@ object Workflow {
             results = w.exercises.map { e ->
                 ExerciseResult(
                     exerciseId = e.exerciseId,
-                    sets = e.sets.filter { it.done && it.reps != null }.map { LoggedSet(it.weightKg ?: 0.0, it.reps!!) },
+                    sets = e.sets.filter { it.done && it.reps != null }.map {
+                        LoggedSet(it.weightKg ?: 0.0, it.reps!!, enteredValue = it.enteredValue, enteredUnit = it.enteredUnit)
+                    },
                     jointPain = e.jointPain ?: JointPain.NONE,
                 )
             },

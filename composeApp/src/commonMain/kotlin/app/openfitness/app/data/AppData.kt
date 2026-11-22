@@ -6,6 +6,7 @@ import app.openfitness.core.model.Muscle
 import app.openfitness.core.model.MuscleFeedback
 import app.openfitness.core.model.Prescription
 import app.openfitness.core.model.SessionRecord
+import app.openfitness.core.units.Units
 import app.openfitness.core.units.WeightUnit
 import kotlinx.serialization.Serializable
 
@@ -28,10 +29,22 @@ data class Settings(
 /** One value that the user enters for a set. Null means "not entered yet". */
 @Serializable
 data class SetEntry(
+    /** The weight in kg. The app uses this value for all math. */
     val weightKg: Double? = null,
     val reps: Int? = null,
     val done: Boolean = false,
-)
+    /** The weight as the user entered (or saw) it, in [enteredUnit]. Null in old data. */
+    val enteredValue: Double? = null,
+    /** The unit of [enteredValue]. Null in old data, which is kg. */
+    val enteredUnit: WeightUnit? = null,
+) {
+    /** Sets the weight from a value in [unit]. */
+    fun withWeight(value: Double?, unit: WeightUnit): SetEntry =
+        copy(weightKg = value?.let { Units.toKg(it, unit) }, enteredValue = value, enteredUnit = value?.let { unit })
+
+    /** The weight to show in [unit], or null. */
+    fun weightIn(unit: WeightUnit): Double? = weightKg?.let { Units.displayLogged(it, enteredValue, enteredUnit, unit) }
+}
 
 /** One exercise of the workout that is in progress. */
 @Serializable

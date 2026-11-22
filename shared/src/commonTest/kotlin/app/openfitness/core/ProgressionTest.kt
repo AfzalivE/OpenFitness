@@ -246,9 +246,12 @@ class UnitsTest {
     @Test fun displayRoundsToTheStep() {
         val u = app.openfitness.core.units.Units
         val lb = app.openfitness.core.units.WeightUnit.LB
-        assertEquals(180.0, u.display(82.5, bench, lb)) // 181.9 lb
+        val kg = app.openfitness.core.units.WeightUnit.KG
+        assertEquals(185.0, u.display(u.toKg(185.0, lb), bench, lb)) // On a lb step: exact.
+        assertEquals(84.0, u.display(u.toKg(185.0, lb), bench, kg)) // 83.9 kg: to the nearest 0.5 kg.
+        assertEquals(182.0, u.display(82.5, bench, lb)) // 181.9 lb: to the nearest 1 lb.
         assertEquals(20.0, u.display(9.0, lateral, lb)) // 19.8 lb
-        assertEquals(82.5, u.display(82.5, bench, app.openfitness.core.units.WeightUnit.KG))
+        assertEquals(82.5, u.display(82.5, bench, kg))
     }
 
     @Test fun lbProgressionStaysOnLbSteps() {
@@ -266,6 +269,31 @@ class UnitsTest {
         val u = app.openfitness.core.units.Units
         assertEquals("80", u.format(80.0))
         assertEquals("82.5", u.format(82.5))
-        assertEquals("1.25", u.format(1.25))
+        assertEquals("1.3", u.format(1.25)) // Never more than 1 decimal.
+        assertEquals("83.9", u.format(83.91459))
+    }
+
+    @Test fun loggedWeightShowsExactlyInTheUnitItWasEnteredIn() {
+        val u = app.openfitness.core.units.Units
+        val lb = app.openfitness.core.units.WeightUnit.LB
+        val kg = app.openfitness.core.units.WeightUnit.KG
+        // Entered as 185 lb.
+        val kg185 = u.toKg(185.0, lb)
+        assertEquals(185.0, u.displayLogged(kg185, 185.0, lb, lb))
+        assertEquals(84.0, u.displayLogged(kg185, 185.0, lb, kg))
+        // Entered as 82.5 kg.
+        assertEquals(82.5, u.displayLogged(82.5, 82.5, kg, kg))
+        assertEquals(182.0, u.displayLogged(82.5, 82.5, kg, lb))
+        // Old data: no entered unit, so it is kg.
+        assertEquals(82.5, u.displayLogged(82.5, null, null, kg))
+        assertEquals(182.0, u.displayLogged(82.5, null, null, lb))
+    }
+
+    @Test fun oldLoggedSetsLoadAsKg() {
+        val json = """{"weightKg":80.0,"reps":8}"""
+        val set = kotlinx.serialization.json.Json.decodeFromString(LoggedSet.serializer(), json)
+        assertEquals(LoggedSet(80.0, 8), set)
+        assertNull(set.enteredUnit)
+        assertEquals(176.0, app.openfitness.core.units.Units.displayLogged(set.weightKg, set.enteredValue, set.enteredUnit, app.openfitness.core.units.WeightUnit.LB))
     }
 }
